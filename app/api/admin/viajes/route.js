@@ -10,9 +10,14 @@ export async function GET(req) {
              v.MUNICIPIO_ORIGEN_VIA || ' - ' || v.MUNICIPIO_DESTINO_VIA as "ruta", 
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "fecha", 
              v.ESTADO_VIA as "estado",
-             'N/A' as "conductor", 
-             'N/A' as "pasajero"
+             u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "conductor",
+             (SELECT LISTAGG(u2.NOMBRE_USU || ' ' || u2.APELLIDO_USU, ', ') WITHIN GROUP (ORDER BY u2.NOMBRE_USU)
+              FROM SOLICITUD s 
+              JOIN USUARIO u2 ON s.USUARIO_ID_USU = u2.ID_USU 
+              WHERE s.VIAJE_ID_VIA = v.ID_VIA AND s.ESTADO_SOL = 'Aceptada') as "pasajeros"
       FROM VIAJE v
+      JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
+      JOIN USUARIO u ON c.USUARIO_ID_USU = u.ID_USU
     `;
     const result = await connection.execute(sql);
     return NextResponse.json(result.rows || [], { status: 200 });

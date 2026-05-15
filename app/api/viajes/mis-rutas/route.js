@@ -31,18 +31,24 @@ export async function GET(req) {
     // 2. Rutas Solicitadas (Como Pasajero)
     const sqlSol = `
       SELECT s.ID_SOL as "id",
+             v.ID_VIA as "viajeId",
              v.MUNICIPIO_ORIGEN_VIA as "origen",
              v.MUNICIPIO_DESTINO_VIA as "destino",
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "fecha",
              u_cond.NOMBRE_USU || ' ' || u_cond.APELLIDO_USU as "conductor",
-             s.ESTADO_SOL as "estado"
+             s.ESTADO_SOL as "estado",
+             v.VEHICULO_PLACA_VEH as "placa",
+             vh.MARCA_VEH as "carro"
       FROM SOLICITUD s
+
       JOIN VIAJE v ON s.VIAJE_ID_VIA = v.ID_VIA
       JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
       JOIN USUARIO u_cond ON c.USUARIO_ID_USU = u_cond.ID_USU
+      LEFT JOIN VEHICULO vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
       WHERE s.USUARIO_ID_USU = :usuarioId
     `;
     const resSol = await connection.execute(sqlSol, { usuarioId: Number(usuarioId) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+
 
     return NextResponse.json({ 
       publicadas: resPub.rows || [],

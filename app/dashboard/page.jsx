@@ -121,6 +121,21 @@ export default function DashboardPage() {
     origen: '', destino: '', carro: '', placa: '', fecha: '', puestos: '', valor: '', comentarios: ''
   });
 
+  // --- ESTADO PARA GUARDIÁN ---
+  const [guardianViaje, setGuardianViaje] = useState(null);
+  const [guardianConfig, setGuardianConfig] = useState({ email: '', tiempoMin: 30 });
+  const [guardianActivo, setGuardianActivo] = useState(false);
+  const [guardianTiempoRestante, setGuardianTiempoRestante] = useState(0);
+  const [guardianAlertaEnviada, setGuardianAlertaEnviada] = useState(false);
+  const [guardianPreAlerta, setGuardianPreAlerta] = useState(false);
+  const [guardianFinalizado, setGuardianFinalizado] = useState(false);
+  const [guardianHoraInicio, setGuardianHoraInicio] = useState(null);
+  const [guardianConfigOpen, setGuardianConfigOpen] = useState(false);
+  const [alertasRecibidas, setAlertasRecibidas] = useState([]);
+  const [showReadjustModal, setShowReadjustModal] = useState(false);
+  const [guardianId, setGuardianId] = useState(null);
+
+
   useEffect(() => {
     const fetchDashboardData = async () => {
       let storedUser = null;
@@ -191,12 +206,134 @@ export default function DashboardPage() {
           .then(data => setMensajes(data || []))
           .catch(err => console.error(err));
       }
+      // Refresh guardian alerts
+      if (activePage === 'guardian') {
+        if (currentUser?.CORREO_USU || currentUser?.correo_usu) {
+          const email = currentUser.CORREO_USU || currentUser.correo_usu;
+          fetch(`/api/guardian?email=${email}`)
+            .then(res => res.json())
+            .then(data => setAlertasRecibidas(data || []))
+            .catch(err => console.error(err));
+        }
+      }
     };
 
+
     refreshTabs();
-    const interval = setInterval(refreshTabs, 10000); // Polling cada 10s para ver nuevos estados/chats
+
+    const interval = setInterval(refreshTabs, 10000);
     return () => clearInterval(interval);
   }, [activePage, currentUser]);
+
+  useEffect(() => {
+    if (!guardianActivo || guardianTiempoRestante <= 0) return;
+    const timer = setInterval(() => {
+      setGuardianTiempoRestante(prev => {
+        const next = prev - 1;
+        
+        // 5 minutos antes (300 seg)
+        if (next === 300 && !guardianPreAlerta) {
+          setGuardianPreAlerta(true);
+          setShowReadjustModal(true);
+          toast('⚠️ ¿Has llegado? Tu tiempo está por terminar.', { duration: 10000, icon: '🔔' });
+        }
+
+        // Si se acaba el tiempo
+        if (next <= 0 && !guardianAlertaEnviada) {
+          setGuardianAlertaEnviada(true);
+          toast.error('🚨 TIEMPO AGOTADO. Alerta activada para tu contacto.', { duration: 15000 });
+          // Sincronizar con DB
+          if (guardianId) {
+            fetch('/api/guardian', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: guardianId, estado: 'ALERTA' })
+            });
+          }
+        }
+        return Math.max(next, 0);
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [guardianActivo, guardianTiempoRestante, guardianPreAlerta, guardianAlertaEnviada, guardianId]);
+
+  const iniciarGuardian = async (viaje) => {
+    if (!guardianConfig.email || !guardianConfig.tiempoMin) {
+      toast.error('Configura el correo y tiempo estimado');
+      return;
+    }
+
+    const uId = currentUser?.ID_USU || currentUser?.id_usu || currentUser?.id;
+    const vId = viaje.viajeId || viaje.id;
+    
+    try {
+      const res = await fetch('/api/guardian', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          viajeId: vId,
+          usuarioId: uId,
+          email: guardianConfig.email.trim().toUpperCase(),
+          tiempo: guardianConfig.tiempoMin
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setGuardianId(data.id);
+        setGuardianViaje(viaje);
+        setGuardianActivo(true);
+        setGuardianFinalizado(false);
+        setGuardianAlertaEnviada(false);
+        setGuardianPreAlerta(false);
+        setGuardianHoraInicio(new Date());
+        setGuardianTiempoRestante(guardianConfig.tiempoMin * 60);
+        setGuardianConfigOpen(false);
+        toast.success('🛡️ Guardián activado en base de datos. ¡Buen viaje!');
+      } else {
+        toast.error(`Error (ID: ${vId}): ` + data.error);
+      }
+    } catch (e) {
+      toast.error('Error de conexión con el servidor');
+    }
+  };
+
+
+  const finalizarGuardian = async () => {
+    if (guardianId) {
+      await fetch('/api/guardian', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: guardianId, estado: 'FINALIZADO' })
+      });
+    }
+    setGuardianActivo(false);
+    setGuardianFinalizado(true);
+    setGuardianTiempoRestante(0);
+    setGuardianId(null);
+    toast.success('✅ ¡Llegaste bien! Guardián desactivado.');
+  };
+
+  const reajustarTiempo = async () => {
+    if (guardianId) {
+      await fetch('/api/guardian', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: guardianId, extraTiempo: 15 })
+      });
+      setGuardianTiempoRestante(prev => prev + (15 * 60));
+      setGuardianPreAlerta(false);
+      setShowReadjustModal(false);
+      toast.success('⏱️ Tiempo extendido 15 minutos');
+    }
+  };
+
+
+  const formatTiempo = (seg) => {
+    const m = Math.floor(seg / 60);
+    const s = seg % 60;
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
 
   const formatCurrency = (value) => {
     const cleanValue = value.replace(/\D/g, "");
@@ -472,8 +609,9 @@ export default function DashboardPage() {
         {activePage === 'inicio' && (
           <section>
             <div className="page-header">
-              <div><h1>¡Hola, {currentUser?.NOMBRE_USU || currentUser?.nombre_usu || 'Pasajero'}! 👋</h1><p style={{ color: 'var(--muted)' }}>Tu movilidad en Colombia simplificada</p></div>
+              <div><h1 style={{ fontFamily: 'Syne', fontWeight: 800 }}>¡Hola, {currentUser?.NOMBRE_USU || currentUser?.nombre_usu || 'Pasajero'}! 👋</h1><p style={{ color: 'var(--muted)' }}>Tu movilidad en Colombia simplificada</p></div>
             </div>
+
             
             <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'stretch' }}>
               {/* CREAR RUTA */}
@@ -645,6 +783,212 @@ export default function DashboardPage() {
           </section>
         )}
 
+        {activePage === 'guardian' && (
+          <section>
+            <div className="page-header">
+              <div>
+                <h1 style={{ fontFamily: 'Syne', fontWeight: 800 }}>🛡️ Guardián de Ruta</h1>
+                <p style={{ color: 'var(--muted)' }}>Protege tu viaje. Tu contacto de confianza será alertado si no confirmas tu llegada.</p>
+              </div>
+            </div>
+
+            {guardianActivo && guardianViaje && (
+              <div style={{ background: 'linear-gradient(135deg, rgba(229,34,34,0.08), rgba(229,34,34,0.02))', border: '2px solid rgba(229,34,34,0.3)', borderRadius: '24px', padding: '2rem', marginBottom: '2rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <h3 style={{ fontFamily: 'Syne', fontSize: '1.2rem' }}>Viaje en Curso</h3>
+                  <span style={{ background: guardianTiempoRestante <= 300 ? 'rgba(255,50,50,0.2)' : 'rgba(74,222,128,0.1)', color: guardianTiempoRestante <= 300 ? '#ff4444' : '#4ade80', padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                    {guardianTiempoRestante <= 0 ? '⚠️ TIEMPO AGOTADO' : guardianTiempoRestante <= 300 ? '⚠️ POR EXPIRAR' : '✅ EN CAMINO'}
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.7rem', marginBottom: '4px' }}>RUTA</p>
+                    <strong>{guardianViaje.origen} → {guardianViaje.destino}</strong>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.7rem', marginBottom: '4px' }}>CONDUCTOR</p>
+                    <strong>{guardianViaje.conductor}</strong>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.7rem', marginBottom: '4px' }}>PLACA</p>
+                    <strong style={{ color: 'var(--red)', letterSpacing: '2px' }}>{guardianViaje.placa}</strong>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.7rem', marginBottom: '4px' }}>CONTACTO ALERTA</p>
+                    <strong style={{ fontSize: '0.85rem' }}>{guardianConfig.email}</strong>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginBottom: '8px' }}>Tiempo restante para confirmar llegada</p>
+                  <div style={{ fontFamily: 'Syne', fontSize: '3.5rem', fontWeight: 800, color: guardianTiempoRestante <= 300 ? '#ff4444' : '#fff', letterSpacing: '4px', textShadow: guardianTiempoRestante <= 300 ? '0 0 20px rgba(255,50,50,0.4)' : 'none', transition: 'color 0.5s' }}>
+                    {formatTiempo(guardianTiempoRestante)}
+                  </div>
+                  {guardianHoraInicio && <p style={{ color: 'var(--muted)', fontSize: '0.75rem', marginTop: '8px' }}>Iniciado: {guardianHoraInicio.toLocaleTimeString()}</p>}
+                </div>
+                {guardianAlertaEnviada && (
+                  <div style={{ background: 'rgba(255,50,50,0.1)', border: '1px solid rgba(255,50,50,0.3)', borderRadius: '14px', padding: '1rem', marginBottom: '1rem', textAlign: 'center' }}>
+                    <p style={{ color: '#ff4444', fontWeight: 'bold', fontSize: '0.9rem' }}>🚨 ALERTA ENVIADA</p>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Se envió una alerta a {guardianConfig.email} con los detalles: Ruta {guardianViaje.origen} → {guardianViaje.destino}, Placa {guardianViaje.placa}, Conductor {guardianViaje.conductor}, Inicio {guardianHoraInicio?.toLocaleTimeString()}</p>
+                  </div>
+                )}
+                {guardianPreAlerta && !guardianAlertaEnviada && (
+                  <div style={{ background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: '14px', padding: '1rem', marginBottom: '1rem', textAlign: 'center' }}>
+                    <p style={{ color: '#facc15', fontWeight: 'bold' }}>⚠️ Tu viaje está por finalizar</p>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Confirma tu llegada para evitar alertar a tu contacto de confianza.</p>
+                  </div>
+                )}
+                <button className="btn-red" onClick={finalizarGuardian} style={{ width: '100%', justifyContent: 'center', padding: '1.2rem', fontSize: '1.1rem', borderRadius: '16px' }}>
+                  ✅ He llegado a mi destino
+                </button>
+              </div>
+            )}
+
+            {!guardianActivo && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                <div>
+                  <h3 style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '1px' }}>🛡️ Proteger mi viaje (Hoy)</h3>
+                  {rutasSolicitadas.filter(r => r.estado === 'Aceptado' && r.fecha === new Date().toLocaleDateString('en-CA')).length === 0 ? (
+                    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '20px', padding: '2rem', textAlign: 'center' }}>
+                      <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No tienes viajes aceptados para el día de hoy.</p>
+                    </div>
+                  ) : (
+                    rutasSolicitadas.filter(r => r.estado === 'Aceptado' && r.fecha === new Date().toLocaleDateString('en-CA')).map(viaje => (
+
+
+                      <div key={viaje.id} className="route-card" style={{ cursor: 'pointer' }} onClick={() => { setGuardianViaje(viaje); setGuardianConfigOpen(true); }}>
+                        <div>
+                          <strong>{viaje.origen} → {viaje.destino}</strong>
+                          <p style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>{viaje.conductor} • {viaje.placa}</p>
+                        </div>
+                        <div style={{ background: 'rgba(229,34,34,0.1)', color: 'var(--red)', padding: '6px 12px', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.75rem' }}>Activar</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div>
+                  <h3 style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '1px' }}>🚨 Alertas de Seguridad (Soy Guardián)</h3>
+                  {alertasRecibidas.length === 0 ? (
+                    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '20px', padding: '2rem', textAlign: 'center' }}>
+                      <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No tienes alertas de seguridad activas de tus contactos.</p>
+                    </div>
+                  ) : (
+                    alertasRecibidas.map(alerta => (
+                      <div key={alerta.id} className="route-card" style={{ border: alerta.estado === 'ALERTA' ? '1px solid var(--red)' : '1px solid var(--border)', background: alerta.estado === 'ALERTA' ? 'rgba(229,34,34,0.05)' : 'var(--card)' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                             <strong style={{ color: alerta.estado === 'ALERTA' ? 'var(--red)' : '#fff' }}>{alerta.estado === 'ALERTA' ? '⚠️ ALERTA: ' : '✅ EN RUTA: '}{alerta.pasajero}</strong>
+                             <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>{alerta.inicio}</span>
+                          </div>
+                          <p style={{ fontSize: '0.85rem', margin: '4px 0' }}>{alerta.origen} → {alerta.destino}</p>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
+                            <span>🚗 {alerta.carro}</span>
+                            <span>🔢 {alerta.placa}</span>
+                            <span>👤 Cond: {alerta.conductor}</span>
+                            <span>⏱️ Tiempo: {alerta.tiempo} min</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+
+            {guardianConfigOpen && guardianViaje && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px' }}>
+                <div style={{ 
+                  background: 'var(--surface)', 
+                  width: '100%', 
+                  maxWidth: '480px', 
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                  borderRadius: '24px', 
+                  border: '1px solid var(--border)', 
+                  padding: '2rem', 
+                  position: 'relative',
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
+                }}>
+                  <button 
+                    onClick={() => setGuardianConfigOpen(false)} 
+                    style={{ 
+                      position: 'absolute', top: '15px', right: '15px', 
+                      background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', 
+                      color: '#fff', cursor: 'pointer', fontSize: '1rem',
+                      width: '32px', height: '32px', borderRadius: '50%',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      zIndex: 10
+                    }}
+                  >✕</button>
+                  <h2 style={{ fontFamily: 'Syne', fontSize: '1.4rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--red)' }}>🛡️ Configurar Guardián</h2>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Configura tu red de seguridad antes de iniciar el viaje.</p>
+
+
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+                    <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>{guardianViaje.origen} → {guardianViaje.destino}</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                      <span>🚗 Vehículo: <strong style={{ color: '#fff' }}>{guardianViaje.carro || 'N/A'}</strong></span>
+                      <span>🔢 Placa: <strong style={{ color: '#fff' }}>{guardianViaje.placa || 'N/A'}</strong></span>
+                      <span>👤 {guardianViaje.conductor}</span>
+                      <span>📅 {guardianViaje.fecha}</span>
+                    </div>
+                  </div>
+
+
+                  <div style={{ background: 'rgba(250,204,21,0.06)', border: '1px solid rgba(250,204,21,0.2)', borderRadius: '14px', padding: '1rem', marginBottom: '1.5rem' }}>
+                    <p style={{ color: '#facc15', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '4px' }}>⚠️ Verificación de Seguridad</p>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>Solo aborda el vehículo si coincide con la placa <strong style={{ color: '#fff' }}>{guardianViaje.placa}</strong> y la descripción <strong style={{ color: '#fff' }}>{guardianViaje.carro || 'indicada'}</strong>.</p>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px' }}>📧 Correo del contacto de confianza</label>
+                      <input 
+                        className="search-input" 
+                        type="email" 
+                        placeholder="ejemplo@correo.com" 
+                        value={guardianConfig.email} 
+                        onChange={(e) => setGuardianConfig({...guardianConfig, email: e.target.value})} 
+                        style={{ padding: '12px 16px' }}
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px' }}>⏱️ Tiempo estimado del viaje (minutos)</label>
+                      <input 
+                        className="search-input" 
+                        type="number" 
+                        min="5" 
+                        max="600" 
+                        placeholder="30" 
+                        value={guardianConfig.tiempoMin} 
+                        onChange={(e) => setGuardianConfig({...guardianConfig, tiempoMin: parseInt(e.target.value) || 0})} 
+                        style={{ padding: '12px 16px' }}
+                        required 
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(229,34,34,0.04)', border: '1px solid rgba(229,34,34,0.1)', borderRadius: '16px', padding: '1.2rem', marginTop: '1.5rem', fontSize: '0.8rem', color: 'var(--muted)', lineHeight: '1.6' }}>
+                    <strong style={{ color: '#fff', display: 'block', marginBottom: '8px', fontSize: '0.9rem' }}>¿Cómo funciona?</strong>
+                    <ul style={{ paddingLeft: '1.2rem', margin: 0 }}>
+                      <li>Al iniciar, se activa un temporizador en tiempo real.</li>
+                      <li>5 min antes de expirar: recibirás un aviso para confirmar tu llegada.</li>
+                      <li>Si no confirmas a tiempo: se envía una alerta a tu contacto con los detalles del vehículo y conductor.</li>
+                    </ul>
+                  </div>
+
+                  <button className="btn-red" onClick={() => iniciarGuardian(guardianViaje)} style={{ width: '100%', justifyContent: 'center', marginTop: '1.5rem', padding: '1.2rem', fontSize: '1.1rem', borderRadius: '14px', boxShadow: '0 10px 20px rgba(229,34,34,0.2)' }}>
+                    🛡️ Iniciar Viaje Seguro
+                  </button>
+
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
         {isModalOpen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
             <div style={{ background: 'var(--surface)', width: '100%', maxWidth: '550px', borderRadius: '24px', border: '1px solid var(--border)', padding: '2.5rem', position: 'relative' }}>
@@ -700,7 +1044,22 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+        {showReadjustModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}>
+            <div style={{ background: 'var(--surface)', width: '100%', maxWidth: '400px', borderRadius: '24px', border: '1px solid var(--red)', padding: '2.5rem', textAlign: 'center' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚠️</div>
+              <h2 style={{ fontFamily: 'Syne', fontSize: '1.5rem', marginBottom: '1rem' }}>¿Has llegado a tu destino?</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>Tu tiempo está por terminar. Confirma tu llegada o solicita más tiempo si hay retrasos en la ruta.</p>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <button className="btn-red" onClick={finalizarGuardian} style={{ width: '100%', justifyContent: 'center', padding: '1rem' }}>✅ Sí, he llegado</button>
+                <button onClick={reajustarTiempo} style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid var(--border)', width: '100%', padding: '1rem', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}>🕒 No, hay retraso (+15 min)</button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+
     </div>
   );
 }
