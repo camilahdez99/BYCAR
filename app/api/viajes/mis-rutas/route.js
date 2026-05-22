@@ -14,17 +14,19 @@ export async function GET(req) {
 
     connection = await getConnection();
 
-    // 1. Rutas Publicadas (Como Conductor)
+    // 1. Rutas Publicadas (Como Conductor/Dueño del Viaje)
     const sqlPub = `
       SELECT v.ID_VIA as "id", 
-             v.MUNICIPIO_ORIGEN_VIA as "origen",
-             v.MUNICIPIO_DESTINO_VIA as "destino", 
+             mo.NOMBRE_MUN as "origen",
+             md.NOMBRE_MUN as "destino", 
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "fecha", 
              v.VEHICULO_PLACA_VEH as "placa",
-             v.ESTADO_VIA as "estado"
-      FROM VIAJE v
-      JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
-      WHERE c.USUARIO_ID_USU = :usuarioId
+             ev.ESTADO_EST_VIA as "estado"
+      FROM VIAJES v
+      INNER JOIN ESTADOS_VIA ev ON v.ESTADO_VIA_ID_EST_VIA = ev.ID_EST_VIA
+      INNER JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
+      INNER JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
+      WHERE v.USUARIOS_ID_USU = :usuarioId
     `;
     const resPub = await connection.execute(sqlPub, { usuarioId: Number(usuarioId) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
@@ -32,23 +34,24 @@ export async function GET(req) {
     const sqlSol = `
       SELECT s.ID_SOL as "id",
              v.ID_VIA as "viajeId",
-             v.MUNICIPIO_ORIGEN_VIA as "origen",
-             v.MUNICIPIO_DESTINO_VIA as "destino",
+             mo.NOMBRE_MUN as "origen",
+             md.NOMBRE_MUN as "destino",
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "fecha",
              u_cond.NOMBRE_USU || ' ' || u_cond.APELLIDO_USU as "conductor",
-             s.ESTADO_SOL as "estado",
+             es.ESTADO_EST_SOL as "estado",
              v.VEHICULO_PLACA_VEH as "placa",
-             vh.MARCA_VEH as "carro"
-      FROM SOLICITUD s
-
-      JOIN VIAJE v ON s.VIAJE_ID_VIA = v.ID_VIA
-      JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
-      JOIN USUARIO u_cond ON c.USUARIO_ID_USU = u_cond.ID_USU
-      LEFT JOIN VEHICULO vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
-      WHERE s.USUARIO_ID_USU = :usuarioId
+             m.NOMBRE_MAR as "carro"
+      FROM SOLICITUDES s
+      JOIN VIAJES v ON s.VIAJES_ID_VIA = v.ID_VIA
+      JOIN ESTADOS_SOL es ON s.ESTADO_ID_EST = es.ID_EST_SOL
+      JOIN USUARIOS u_cond ON v.USUARIOS_ID_USU = u_cond.ID_USU
+      JOIN VEHICULOS vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
+      JOIN MARCAS m ON vh.MARCA_ID_MAR = m.ID_MAR
+      JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
+      JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
+      WHERE s.USUARIOS_ID_USU = :usuarioId
     `;
     const resSol = await connection.execute(sqlSol, { usuarioId: Number(usuarioId) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-
 
     return NextResponse.json({ 
       publicadas: resPub.rows || [],

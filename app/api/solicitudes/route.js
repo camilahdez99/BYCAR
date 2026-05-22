@@ -14,8 +14,8 @@ export async function POST(req) {
     const idSol = Date.now();
     
     const sql = `
-      INSERT INTO SOLICITUD (ID_SOL, FECHA_SOL, ESTADO_SOL, VIAJE_ID_VIA, USUARIO_ID_USU)
-      VALUES (:idSol, SYSDATE, 'Pendiente', :viajeId, :usuarioId)
+      INSERT INTO SOLICITUDES (ID_SOL, FECHA_SOL, ESTADO_ID_EST, VIAJES_ID_VIA, USUARIOS_ID_USU)
+      VALUES (:idSol, SYSDATE, 1, :viajeId, :usuarioId)
     `;
 
     await connection.execute(sql, { idSol, viajeId, usuarioId }, { autoCommit: true });
@@ -40,9 +40,18 @@ export async function PUT(req) {
       return NextResponse.json({ error: 'ID de solicitud y estado son requeridos' }, { status: 400 });
     }
 
+    // Mapa de compatibilidad si el frontend sigue enviando texto
+    const estadoMap = { 
+      'Pendiente': 1, 'PENDIENTE': 1, 
+      'Aceptada': 2, 'Aceptado': 2, 'ACEPTADA': 2, 'ACEPTADO': 2,
+      'Rechazada': 3, 'Rechazado': 3, 'RECHAZADA': 3, 'RECHAZADO': 3,
+      'Cancelada': 4, 'Cancelado': 4, 'CANCELADA': 4, 'CANCELADO': 4
+    };
+    const estadoId = estadoMap[estado] !== undefined ? estadoMap[estado] : estado;
+
     connection = await getConnection();
-    const sql = `UPDATE SOLICITUD SET ESTADO_SOL = :estado WHERE ID_SOL = :solicitudId`;
-    await connection.execute(sql, { estado, solicitudId }, { autoCommit: true });
+    const sql = `UPDATE SOLICITUDES SET ESTADO_ID_EST = :estadoId WHERE ID_SOL = :solicitudId`;
+    await connection.execute(sql, { estadoId: Number(estadoId), solicitudId }, { autoCommit: true });
 
     return NextResponse.json({ message: 'Solicitud actualizada' }, { status: 200 });
   } catch (error) {

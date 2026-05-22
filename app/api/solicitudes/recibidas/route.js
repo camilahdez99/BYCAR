@@ -16,14 +16,15 @@ export async function GET(req) {
     const sql = `
       SELECT s.ID_SOL as "id", 
              u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "pasajero", 
-             v.MUNICIPIO_ORIGEN_VIA || ' -> ' || v.MUNICIPIO_DESTINO_VIA as "ruta",
+             mo.NOMBRE_MUN || ' -> ' || md.NOMBRE_MUN as "ruta",
              'U' as "avatar"
-      FROM SOLICITUD s
-      JOIN VIAJE v ON s.VIAJE_ID_VIA = v.ID_VIA
-      JOIN USUARIO u ON s.USUARIO_ID_USU = u.ID_USU
-      JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
-      WHERE s.ESTADO_SOL = 'Pendiente' 
-        AND c.USUARIO_ID_USU = :usuarioId
+      FROM SOLICITUDES s
+      JOIN VIAJES v ON s.VIAJES_ID_VIA = v.ID_VIA
+      JOIN USUARIOS u ON s.USUARIOS_ID_USU = u.ID_USU
+      JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
+      JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
+      WHERE s.ESTADO_ID_EST = 1 
+        AND v.USUARIOS_ID_USU = :usuarioId
     `;
     
     // Convertir usuarioId a número para asegurar compatibilidad en Oracle

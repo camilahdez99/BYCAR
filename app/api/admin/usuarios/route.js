@@ -8,7 +8,7 @@ export async function GET(req) {
     connection = await getConnection();
     const sql = `
       SELECT ID_USU as "id", NOMBRE_USU as "nombre", APELLIDO_USU as "apellido", CORREO_USU as "correo"
-      FROM USUARIO
+      FROM USUARIOS
       ORDER BY NOMBRE_USU ASC
     `;
     const result = await connection.execute(sql);
@@ -36,13 +36,14 @@ export async function POST(req) {
     connection = await getConnection();
 
     // Obtener el siguiente ID disponible
-    const seqResult = await connection.execute(`SELECT NVL(MAX(ID_USU), 0) + 1 as "nextId" FROM USUARIO`);
+    const seqResult = await connection.execute(`SELECT NVL(MAX(ID_USU), 0) + 1 as "nextId" FROM USUARIOS`);
     const nextId = seqResult.rows[0].nextId;
 
     const sql = `
-      INSERT INTO USUARIO (ID_USU, NOMBRE_USU, APELLIDO_USU, CORREO_USU, CONTRASENA_USU)
-      VALUES (:id, :nombre, :apellido, :correo, :contrasena)
+      INSERT INTO USUARIOS (ID_USU, NOMBRE_USU, APELLIDO_USU, CORREO_USU, CONTRASENA_USU, PERFIL_ID_PER)
+      VALUES (:id, :nombre, :apellido, :correo, :contrasena, 2)
     `;
+    // Perfil 2 = Usuario Estandar
     await connection.execute(
       sql,
       { id: nextId, nombre: nombre.toUpperCase(), apellido: apellido.toUpperCase(), correo, contrasena },
@@ -78,7 +79,7 @@ export async function PUT(req) {
 
     connection = await getConnection();
     const sql = `
-      UPDATE USUARIO 
+      UPDATE USUARIOS 
       SET NOMBRE_USU = :nombre, APELLIDO_USU = :apellido, CORREO_USU = :correo 
       WHERE ID_USU = :id
     `;
@@ -110,16 +111,8 @@ export async function DELETE(req) {
 
     connection = await getConnection();
 
-    // Eliminar en cascada manual (por si no se tiene ON DELETE CASCADE activo)
-    await connection.execute(`DELETE FROM GUARDIAN WHERE ID_VIA IN (SELECT ID_VIA FROM VIAJE v JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON WHERE c.USUARIO_ID_USU = :id)`, { id });
-    await connection.execute(`DELETE FROM MENSAJE WHERE USUARIO_ID_USU = :id`, { id });
-    await connection.execute(`DELETE FROM MENSAJE WHERE CONDUCTOR_ID_CON IN (SELECT ID_CON FROM CONDUCTOR WHERE USUARIO_ID_USU = :id)`, { id });
-    await connection.execute(`DELETE FROM SOLICITUD WHERE USUARIO_ID_USU = :id`, { id });
-    await connection.execute(`DELETE FROM SOLICITUD WHERE VIAJE_ID_VIA IN (SELECT ID_VIA FROM VIAJE v JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON WHERE c.USUARIO_ID_USU = :id)`, { id });
-    await connection.execute(`DELETE FROM VIAJE WHERE CONDUCTOR_ID_CON IN (SELECT ID_CON FROM CONDUCTOR WHERE USUARIO_ID_USU = :id)`, { id });
-    await connection.execute(`DELETE FROM VEHICULO WHERE CONDUCTOR_ID_CON IN (SELECT ID_CON FROM CONDUCTOR WHERE USUARIO_ID_USU = :id)`, { id });
-    await connection.execute(`DELETE FROM CONDUCTOR WHERE USUARIO_ID_USU = :id`, { id });
-    await connection.execute(`DELETE FROM USUARIO WHERE ID_USU = :id`, { id }, { autoCommit: true });
+    // Eliminar usuario. ON DELETE CASCADE en la BD eliminará el resto.
+    await connection.execute(`DELETE FROM USUARIOS WHERE ID_USU = :id`, { id }, { autoCommit: true });
 
     return NextResponse.json({ message: 'Usuario eliminado correctamente' }, { status: 200 });
   } catch (error) {

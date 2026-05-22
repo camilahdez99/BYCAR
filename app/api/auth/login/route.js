@@ -19,11 +19,11 @@ export async function POST(req) {
 
     const sql = `
       SELECT ID_USU, NOMBRE_USU, APELLIDO_USU, CORREO_USU 
-      FROM USUARIO 
-      WHERE CORREO_USU = :correo AND CONTRASENA_USU = :contrasena
+      FROM USUARIOS 
+      WHERE LOWER(CORREO_USU) = LOWER(:correo) AND CONTRASENA_USU = :contrasena
     `;
 
-    const result = await connection.execute(sql, { correo, contrasena });
+    const result = await connection.execute(sql, { correo: String(correo).trim(), contrasena });
 
     if (result.rows && result.rows.length > 0) {
       const user = result.rows[0];

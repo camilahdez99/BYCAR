@@ -2,43 +2,126 @@ import { NextResponse } from 'next/server';
 import oracledb from 'oracledb';
 import { getConnection } from '@/lib/db';
 
+async function getOrCreateMunicipio(connection, name) {
+  if (!name) return 1;
+  const cleanName = String(name).trim().toUpperCase();
+  
+  const idNum = parseInt(cleanName, 10);
+  if (!isNaN(idNum)) {
+    return idNum;
+  }
+  
+  const res = await connection.execute(
+    `SELECT ID_MUN FROM MUNICIPIOS WHERE UPPER(NOMBRE_MUN) = :cleanName`,
+    { cleanName }
+  );
+  
+  if (res.rows && res.rows.length > 0) {
+    return res.rows[0].ID_MUN;
+  }
+  
+  const maxRes = await connection.execute(`SELECT NVL(MAX(ID_MUN), 0) + 1 as "nextId" FROM MUNICIPIOS`);
+  const nextId = maxRes.rows[0].nextId || 1;
+  
+  await connection.execute(
+    `INSERT INTO MUNICIPIOS (ID_MUN, NOMBRE_MUN, DEPARTAMENTO_ID_DEP) VALUES (:nextId, :name, 1)`,
+    { nextId, name: name.trim() },
+    { autoCommit: true }
+  );
+  
+  return nextId;
+}
+
+async function getOrCreateMarca(connection, carroInput) {
+  if (!carroInput) return 1;
+  
+  const idNum = parseInt(carroInput, 10);
+  if (!isNaN(idNum)) {
+    return idNum;
+  }
+
+  const brandName = String(carroInput).trim().split(/\s+/)[0].toUpperCase();
+  
+  const res = await connection.execute(
+    `SELECT ID_MAR FROM MARCAS WHERE UPPER(NOMBRE_MAR) = :brandName`,
+    { brandName }
+  );
+  
+  if (res.rows && res.rows.length > 0) {
+    return res.rows[0].ID_MAR;
+  }
+  
+  const fullRes = await connection.execute(
+    `SELECT ID_MAR FROM MARCAS WHERE UPPER(NOMBRE_MAR) = :fullInput`,
+    { fullInput: String(carroInput).trim().toUpperCase() }
+  );
+  
+  if (fullRes.rows && fullRes.rows.length > 0) {
+    return fullRes.rows[0].ID_MAR;
+  }
+  
+  const maxRes = await connection.execute(`SELECT NVL(MAX(ID_MAR), 0) + 1 as "nextId" FROM MARCAS`);
+  const nextId = maxRes.rows[0].nextId || 1;
+  
+  const formattedBrand = brandName.charAt(0) + brandName.slice(1).toLowerCase();
+  await connection.execute(
+    `INSERT INTO MARCAS (ID_MAR, NOMBRE_MAR) VALUES (:nextId, :formattedBrand)`,
+    { nextId, formattedBrand },
+    { autoCommit: true }
+  );
+  
+  return nextId;
+}
+
 export async function GET(req) {
   let connection;
   try {
     const { searchParams } = new URL(req.url);
-    const origen = searchParams.get('origen');
-    const destino = searchParams.get('destino');
+    const origenId = searchParams.get('origen');
+    const destinoId = searchParams.get('destino');
 
     connection = await getConnection();
 
     let sql = `
       SELECT v.ID_VIA as "id", 
-             v.MUNICIPIO_ORIGEN_VIA as "origen", 
-             v.MUNICIPIO_DESTINO_VIA as "destino", 
+             mo.NOMBRE_MUN as "origen", 
+             md.NOMBRE_MUN as "destino", 
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "hora", 
              v.COSTO_PERSONA_VIA as "valor",
-             v.COMENTARIOS_VIA as "comentarios",
+             'N/A' as "comentarios", 
              v.CUPOS_DISPONIBLES_VIA as "puestos",
              u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "conductor",
-             vh.MARCA_VEH as "carro"
-      FROM VIAJE v
-      LEFT JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
-      LEFT JOIN USUARIO u ON c.USUARIO_ID_USU = u.ID_USU
-      LEFT JOIN VEHICULO vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
-      WHERE v.ESTADO_VIA = 'Activo' AND v.TIEMPO_SALIDA_VIA >= SYSDATE - 1
+             m.NOMBRE_MAR as "carro"
+      FROM VIAJES v
+      INNER JOIN USUARIOS u ON v.USUARIOS_ID_USU = u.ID_USU
+      INNER JOIN VEHICULOS vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
+      INNER JOIN MARCAS m ON vh.MARCA_ID_MAR = m.ID_MAR
+      INNER JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
+      INNER JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
+      WHERE v.ESTADO_VIA_ID_EST_VIA = 1 AND v.TIEMPO_SALIDA_VIA >= SYSDATE - 30
     `;
 
     const binds = {};
-    if (origen) {
-      sql += ` AND LOWER(v.MUNICIPIO_ORIGEN_VIA) LIKE LOWER(:origen)`;
-      binds.origen = `%${origen}%`;
+    if (origenId) {
+      if (!isNaN(origenId)) {
+        sql += ` AND v.MUNICIPIO_ORIGEN_ID = :origenId`;
+        binds.origenId = Number(origenId);
+      } else {
+        sql += ` AND UPPER(mo.NOMBRE_MUN) = UPPER(:origenName)`;
+        binds.origenName = origenId.trim();
+      }
     }
-    if (destino) {
-      sql += ` AND LOWER(v.MUNICIPIO_DESTINO_VIA) LIKE LOWER(:destino)`;
-      binds.destino = `%${destino}%`;
+    if (destinoId) {
+      if (!isNaN(destinoId)) {
+        sql += ` AND v.MUNICIPIOS_DESTINO_ID = :destinoId`;
+        binds.destinoId = Number(destinoId);
+      } else {
+        sql += ` AND UPPER(md.NOMBRE_MUN) = UPPER(:destinoName)`;
+        binds.destinoName = destinoId.trim();
+      }
     }
 
-    const result = await connection.execute(sql, binds);
+    const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
     return NextResponse.json(result.rows || [], { status: 200 });
   } catch (error) {
     console.error('Error al obtener viajes:', error);
@@ -54,49 +137,33 @@ export async function POST(req) {
   let connection;
   try {
     const body = await req.json();
-    const { origen, destino, carro, placa, fecha, puestos, valor, comentarios, usuarioId } = body;
+    const { origen, destino, carro, placa, fecha, puestos, valor, usuarioId } = body;
 
     if (!origen || !destino || !placa || !fecha || !puestos || !valor || !usuarioId) {
       return NextResponse.json({ error: 'Faltan campos obligatorios' }, { status: 400 });
     }
 
-    // 1. Limpiar placa para que tenga máximo 6 caracteres (ej: de XYZ-123 a XYZ123)
     const cleanPlaca = placa.replace(/[^a-zA-Z0-9]/g, '').substring(0, 6).toUpperCase();
     const numPuestos = parseInt(puestos, 10);
 
     connection = await getConnection();
 
-    // 2. Verificar si el usuario ya es conductor
-    let conductorId = null;
-    const checkConductor = await connection.execute(
-      `SELECT ID_CON FROM CONDUCTOR WHERE USUARIO_ID_USU = :usuarioId`,
-      { usuarioId },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+    // Resolve or create Municipio IDs and Marca ID dynamically
+    const origenId = await getOrCreateMunicipio(connection, origen);
+    const destinoId = await getOrCreateMunicipio(connection, destino);
+    const marcaId = await getOrCreateMarca(connection, carro);
 
-    if (checkConductor.rows && checkConductor.rows.length > 0) {
-      const row = checkConductor.rows[0];
-      conductorId = row.ID_CON || row.id_con || row[0];
-    } else {
-      conductorId = Date.now();
-      await connection.execute(
-        `INSERT INTO CONDUCTOR (ID_CON, USUARIO_ID_USU) VALUES (:conductorId, :usuarioId)`,
-        { conductorId, usuarioId },
-        { autoCommit: true }
-      );
-    }
-
-    // 3. Verificar si el vehículo existe
+    // 1. Verificar si el vehículo existe
     const checkVehiculo = await connection.execute(
-      `SELECT PLACA_VEH FROM VEHICULO WHERE PLACA_VEH = :cleanPlaca`,
+      `SELECT PLACA_VEH FROM VEHICULOS WHERE PLACA_VEH = :cleanPlaca`,
       { cleanPlaca }
     );
 
     if (!checkVehiculo.rows || checkVehiculo.rows.length === 0) {
        await connection.execute(
-         `INSERT INTO VEHICULO (PLACA_VEH, MARCA_VEH, MODELO_VEH, COLOR_VEH, CAPACIDAD_VEH, CONDUCTOR_ID_CON)
-          VALUES (:cleanPlaca, :marca, :modelo, :color, :capacidad, :conductorId)`,
-         { cleanPlaca, marca: carro || 'Genérico', modelo: 'N/A', color: 'N/A', capacidad: numPuestos, conductorId },
+         `INSERT INTO VEHICULOS (PLACA_VEH, CAPACIDAD_VEH, CONDUCTOR_ID_USU, MARCA_ID_MAR)
+          VALUES (:cleanPlaca, :capacidad, :usuarioId, :marcaId)`,
+         { cleanPlaca, capacidad: numPuestos, usuarioId, marcaId },
          { autoCommit: true }
        );
     }
@@ -104,12 +171,13 @@ export async function POST(req) {
     const idViaje = Date.now();
     const valorNum = parseFloat(String(valor).replace(/,/g, ''));
 
+    // Estado 1 = Disponible
     const sql = `
-      INSERT INTO VIAJE (ID_VIA, MUNICIPIO_ORIGEN_VIA, MUNICIPIO_DESTINO_VIA, TIEMPO_SALIDA_VIA, CUPOS_DISPONIBLES_VIA, COSTO_PERSONA_VIA, ESTADO_VIA, VEHICULO_PLACA_VEH, CONDUCTOR_ID_CON, COMENTARIOS_VIA)
-      VALUES (:idViaje, :origen, :destino, TO_DATE(:fecha, 'YYYY-MM-DD'), :numPuestos, :valorNum, 'Activo', :cleanPlaca, :conductorId, :comentarios)
+      INSERT INTO VIAJES (ID_VIA, MUNICIPIO_ORIGEN_ID, MUNICIPIOS_DESTINO_ID, TIEMPO_SALIDA_VIA, CUPOS_DISPONIBLES_VIA, COSTO_PERSONA_VIA, USUARIOS_ID_USU, VEHICULO_PLACA_VEH, ESTADO_VIA_ID_EST_VIA)
+      VALUES (:idViaje, :origenId, :destinoId, TO_DATE(:fecha, 'YYYY-MM-DD'), :numPuestos, :valorNum, :usuarioId, :cleanPlaca, 1)
     `;
 
-    await connection.execute(sql, { idViaje, origen, destino, fecha, numPuestos, valorNum, cleanPlaca, conductorId, comentarios: comentarios || '' }, { autoCommit: true });
+    await connection.execute(sql, { idViaje, origenId, destinoId, fecha, numPuestos, valorNum, usuarioId, cleanPlaca }, { autoCommit: true });
 
     return NextResponse.json({ message: 'Viaje publicado correctamente', id: idViaje }, { status: 201 });
   } catch (error) {

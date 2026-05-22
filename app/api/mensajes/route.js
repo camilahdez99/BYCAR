@@ -15,9 +15,9 @@ export async function GET(req) {
 
     // 1. Obtener passengerId y driverId de la Solicitud
     const sqlSol = `
-      SELECT s.USUARIO_ID_USU as "passengerId", v.CONDUCTOR_ID_CON as "driverId"
-      FROM SOLICITUD s
-      JOIN VIAJE v ON s.VIAJE_ID_VIA = v.ID_VIA
+      SELECT s.USUARIOS_ID_USU as "passengerId", v.USUARIOS_ID_USU as "driverId"
+      FROM SOLICITUDES s
+      JOIN VIAJES v ON s.VIAJES_ID_VIA = v.ID_VIA
       WHERE s.ID_SOL = :chatId
     `;
     const resSol = await connection.execute(sqlSol, { chatId });
@@ -30,23 +30,19 @@ export async function GET(req) {
 
     // 2. Obtener mensajes asociados a este par
     const sqlMsgs = `
-      SELECT TO_CHAR(CONTENIDO_MEN) as "content"
-      FROM MENSAJE
-      WHERE USUARIO_ID_USU = :passengerId AND CONDUCTOR_ID_CON = :driverId
+      SELECT TO_CHAR(CONTENIDO_MEN) as "content", USUARIOS_EMISOR_ID as "senderId"
+      FROM MENSAJES
+      WHERE (USUARIO_RECEPTOR_ID = :passengerId AND USUARIOS_EMISOR_ID = :driverId)
+         OR (USUARIO_RECEPTOR_ID = :driverId AND USUARIOS_EMISOR_ID = :passengerId)
       ORDER BY FECHA_ENVIO_MEN ASC
     `;
     const resMsgs = await connection.execute(sqlMsgs, { passengerId, driverId });
 
     // 3. Transformar mensajes
     const messages = (resMsgs.rows || []).map(row => {
-      // El contenido guarda "SENDER_ID||Texto del mensaje"
-      const contentStr = row.content || '';
-      const parts = contentStr.split('||');
-      const senderId = parts[0];
-      const text = parts.slice(1).join('||');
       return {
-        senderId: parseInt(senderId, 10),
-        text
+        senderId: row.senderId,
+        text: row.content || ''
       };
     });
 
@@ -75,9 +71,9 @@ export async function POST(req) {
 
     // 1. Obtener passengerId y driverId de la Solicitud
     const sqlSol = `
-      SELECT s.USUARIO_ID_USU as "passengerId", v.CONDUCTOR_ID_CON as "driverId"
-      FROM SOLICITUD s
-      JOIN VIAJE v ON s.VIAJE_ID_VIA = v.ID_VIA
+      SELECT s.USUARIOS_ID_USU as "passengerId", v.USUARIOS_ID_USU as "driverId"
+      FROM SOLICITUDES s
+      JOIN VIAJES v ON s.VIAJES_ID_VIA = v.ID_VIA
       WHERE s.ID_SOL = :chatId
     `;
     const resSol = await connection.execute(sqlSol, { chatId });
@@ -88,16 +84,18 @@ export async function POST(req) {
 
     const { passengerId, driverId } = resSol.rows[0];
 
-    // 2. Insertar mensaje (SENDER_ID||TEXT)
+    const emisorId = parseInt(senderId, 10);
+    const receptorId = (emisorId === parseInt(passengerId, 10)) ? parseInt(driverId, 10) : parseInt(passengerId, 10);
+
+    // 2. Insertar mensaje
     const idMen = Date.now();
-    const contenido = `${senderId}||${text}`;
 
     const sqlInsert = `
-      INSERT INTO MENSAJE (ID_MEN, CONTENIDO_MEN, FECHA_ENVIO_MEN, USUARIO_ID_USU, CONDUCTOR_ID_CON)
-      VALUES (:idMen, :contenido, SYSTIMESTAMP, :passengerId, :driverId)
+      INSERT INTO MENSAJES (ID_MEN, CONTENIDO_MEN, FECHA_ENVIO_MEN, USUARIO_RECEPTOR_ID, USUARIOS_EMISOR_ID)
+      VALUES (:idMen, :contenido, SYSTIMESTAMP, :receptorId, :emisorId)
     `;
 
-    await connection.execute(sqlInsert, { idMen, contenido, passengerId, driverId }, { autoCommit: true });
+    await connection.execute(sqlInsert, { idMen, contenido: text, receptorId, emisorId }, { autoCommit: true });
 
     return NextResponse.json({ success: true }, { status: 201 });
 

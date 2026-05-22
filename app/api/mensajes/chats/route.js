@@ -20,19 +20,20 @@ export async function GET(req) {
     const sql = `
       SELECT s.ID_SOL as "chatId",
              CASE 
-               WHEN s.USUARIO_ID_USU = :usuarioId THEN u_cond.NOMBRE_USU || ' ' || u_cond.APELLIDO_USU
+               WHEN s.USUARIOS_ID_USU = :usuarioId THEN u_cond.NOMBRE_USU || ' ' || u_cond.APELLIDO_USU
                ELSE u_pasajero.NOMBRE_USU || ' ' || u_pasajero.APELLIDO_USU
              END as "nombre",
-             v.MUNICIPIO_ORIGEN_VIA || ' - ' || v.MUNICIPIO_DESTINO_VIA as "ruta",
+             mo.NOMBRE_MUN || ' - ' || md.NOMBRE_MUN as "ruta",
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "fecha"
-      FROM SOLICITUD s
-      JOIN VIAJE v ON s.VIAJE_ID_VIA = v.ID_VIA
-      JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
-      JOIN USUARIO u_cond ON c.USUARIO_ID_USU = u_cond.ID_USU
-      JOIN USUARIO u_pasajero ON s.USUARIO_ID_USU = u_pasajero.ID_USU
-      WHERE s.ESTADO_SOL = 'Aceptado'
+      FROM SOLICITUDES s
+      JOIN VIAJES v ON s.VIAJES_ID_VIA = v.ID_VIA
+      JOIN USUARIOS u_cond ON v.USUARIOS_ID_USU = u_cond.ID_USU
+      JOIN USUARIOS u_pasajero ON s.USUARIOS_ID_USU = u_pasajero.ID_USU
+      JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
+      JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
+      WHERE s.ESTADO_ID_EST = 2
         AND v.TIEMPO_SALIDA_VIA >= SYSDATE - 1
-        AND (s.USUARIO_ID_USU = :usuarioId OR c.USUARIO_ID_USU = :usuarioId)
+        AND (s.USUARIOS_ID_USU = :usuarioId OR v.USUARIOS_ID_USU = :usuarioId)
     `;
 
     const result = await connection.execute(sql, { usuarioId });

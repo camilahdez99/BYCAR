@@ -16,24 +16,35 @@ export async function POST(req) {
     const idUsu = Date.now();
 
     const sql = `
-      INSERT INTO USUARIO (ID_USU, NOMBRE_USU, APELLIDO_USU, CORREO_USU, CONTRASENA_USU)
-      VALUES (:idUsu, :nombre, :apellido, :correo, :contrasena)
+      INSERT INTO USUARIOS (ID_USU, NOMBRE_USU, APELLIDO_USU, CORREO_USU, CONTRASENA_USU, PERFIL_ID_PER)
+      VALUES (:idUsu, :nombre, :apellido, :correo, :contrasena, :perfilId)
     `;
 
     const binds = {
       idUsu,
-      nombre,
-      apellido,
-      correo,
-      contrasena
+      nombre: String(nombre).toUpperCase(),
+      apellido: String(apellido).toUpperCase(),
+      correo: String(correo).trim().toLowerCase(),
+      contrasena,
+      perfilId: 2 // 2 = Usuario Estándar (según script seed_3fn)
     };
 
     await connection.execute(sql, binds, { autoCommit: true });
 
     return NextResponse.json({ message: 'Usuario registrado correctamente', id: idUsu }, { status: 201 });
   } catch (error) {
+    // Detect duplicate email (unique‑constraint violation)
+    if (error && error.errorNum === 1) {
+      // ORA‑00001: unique constraint (email) violated
+      return NextResponse.json({ error: 'El correo ya está registrado' }, { status: 409 });
+    }
+    // Detect foreign‑key violation (e.g., perfil no existe)
+    if (error && error.errorNum === 2291) {
+      // ORA‑02291: integrity constraint (FK) violated
+      return NextResponse.json({ error: 'Perfil no válido o datos faltantes' }, { status: 400 });
+    }
     console.error('Error al registrar usuario:', error);
-    return NextResponse.json({ error: 'Error interno del servidor o el correo ya existe' }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   } finally {
     if (connection) {
       try {

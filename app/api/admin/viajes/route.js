@@ -7,17 +7,19 @@ export async function GET(req) {
     connection = await getConnection();
     const sql = `
       SELECT v.ID_VIA as "id", 
-             v.MUNICIPIO_ORIGEN_VIA || ' - ' || v.MUNICIPIO_DESTINO_VIA as "ruta", 
+             mo.NOMBRE_MUN || ' - ' || md.NOMBRE_MUN as "ruta", 
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "fecha", 
-             v.ESTADO_VIA as "estado",
+             ev.ESTADO_EST_VIA as "estado",
              u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "conductor",
              (SELECT LISTAGG(u2.NOMBRE_USU || ' ' || u2.APELLIDO_USU, ', ') WITHIN GROUP (ORDER BY u2.NOMBRE_USU)
-              FROM SOLICITUD s 
-              JOIN USUARIO u2 ON s.USUARIO_ID_USU = u2.ID_USU 
-              WHERE s.VIAJE_ID_VIA = v.ID_VIA AND s.ESTADO_SOL = 'Aceptada') as "pasajeros"
-      FROM VIAJE v
-      JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
-      JOIN USUARIO u ON c.USUARIO_ID_USU = u.ID_USU
+              FROM SOLICITUDES s 
+              JOIN USUARIOS u2 ON s.USUARIOS_ID_USU = u2.ID_USU 
+              WHERE s.VIAJES_ID_VIA = v.ID_VIA AND s.ESTADO_ID_EST = 2) as "pasajeros"
+      FROM VIAJES v
+      JOIN USUARIOS u ON v.USUARIOS_ID_USU = u.ID_USU
+      JOIN ESTADOS_VIA ev ON v.ESTADO_VIA_ID_EST_VIA = ev.ID_EST_VIA
+      JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
+      JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
     `;
     const result = await connection.execute(sql);
     return NextResponse.json(result.rows || [], { status: 200 });
@@ -41,11 +43,8 @@ export async function DELETE(req) {
 
     connection = await getConnection();
     
-    // 1. Eliminar solicitudes asociadas al viaje
-    await connection.execute(`DELETE FROM SOLICITUD WHERE VIAJE_ID_VIA = :id`, { id });
-    
-    // 2. Finalmente eliminar el viaje
-    const sql = `DELETE FROM VIAJE WHERE ID_VIA = :id`;
+    // ON DELETE CASCADE se encarga de las dependencias
+    const sql = `DELETE FROM VIAJES WHERE ID_VIA = :id`;
     await connection.execute(sql, { id }, { autoCommit: true });
 
     return NextResponse.json({ message: 'Viaje y sus dependencias eliminados' }, { status: 200 });
@@ -58,6 +57,7 @@ export async function DELETE(req) {
     }
   }
 }
+
 export async function PUT(req) {
   let connection;
   try {
@@ -67,9 +67,13 @@ export async function PUT(req) {
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
+    // Mapa de compatibilidad si el frontend envía texto
+    const estadoMap = { 'Disponible': 1, 'Lleno': 2, 'En Curso': 3, 'Finalizado': 4, 'Cancelado': 5 };
+    const estadoId = estadoMap[estado] !== undefined ? estadoMap[estado] : estado;
+
     connection = await getConnection();
-    const sql = `UPDATE VIAJE SET ESTADO_VIA = :estado WHERE ID_VIA = :id`;
-    await connection.execute(sql, { id, estado }, { autoCommit: true });
+    const sql = `UPDATE VIAJES SET ESTADO_VIA_ID_EST_VIA = :estadoId WHERE ID_VIA = :id`;
+    await connection.execute(sql, { id, estadoId: Number(estadoId) }, { autoCommit: true });
 
     return NextResponse.json({ message: 'Viaje actualizado' }, { status: 200 });
   } catch (error) {

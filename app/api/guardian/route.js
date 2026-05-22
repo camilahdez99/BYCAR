@@ -2,10 +2,6 @@ import { NextResponse } from 'next/server';
 import oracledb from 'oracledb';
 import { getConnection } from '@/lib/db';
 
-/**
- * GET: Obtener viajes donde el usuario es el guardián (contacto de confianza)
- * o el estado de su propio guardián activo.
- */
 export async function GET(req) {
   let connection;
   try {
@@ -20,34 +16,37 @@ export async function GET(req) {
       const sql = `
         SELECT g.ID_GUA as "id", 
                g.EMAIL_CONFIANZA_GUA as "email",
-               g.TIEMPO_ESTIMADO_MIN_GUA as "tiempo",
-               g.ESTADO_VIAJE_GUA as "estado",
+               es.ESTADO_EST_GUA as "estado",
                TO_CHAR(g.FECHA_INICIO_GUA, 'YYYY-MM-DD HH24:MI:SS') as "inicio",
-               v.MUNICIPIO_ORIGEN_VIA as "origen",
-               v.MUNICIPIO_DESTINO_VIA as "destino",
+               mo.NOMBRE_MUN as "origen",
+               md.NOMBRE_MUN as "destino",
                u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "pasajero",
                vh.PLACA_VEH as "placa",
-               vh.MARCA_VEH as "carro",
-               cond_u.NOMBRE_USU || ' ' || cond_u.APELLIDO_USU as "conductor"
-        FROM GUARDIAN g
-        JOIN VIAJE v ON g.ID_VIA = v.ID_VIA
-        JOIN USUARIO u ON g.USUARIO_ID_USU = u.ID_USU
-        JOIN VEHICULO vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
-        JOIN CONDUCTOR c ON v.CONDUCTOR_ID_CON = c.ID_CON
-        JOIN USUARIO cond_u ON c.USUARIO_ID_USU = cond_u.ID_USU
-        WHERE UPPER(g.EMAIL_CONFIANZA_GUA) = UPPER(:email) AND g.ESTADO_VIAJE_GUA != 'FINALIZADO'
-
+               m.NOMBRE_MAR as "carro",
+               u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "conductor"
+        FROM GUARDIANES g
+        JOIN VIAJES v ON g.VIAJES_ID_VIA = v.ID_VIA
+        JOIN ESTADOS_GUA es ON g.ESTADO_ID_EST = es.ID_EST_GUA
+        JOIN USUARIOS u ON v.USUARIOS_ID_USU = u.ID_USU
+        JOIN VEHICULOS vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
+        JOIN MARCAS m ON vh.MARCA_ID_MAR = m.ID_MAR
+        JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
+        JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
+        WHERE UPPER(g.EMAIL_CONFIANZA_GUA) = UPPER(:email) AND g.ESTADO_ID_EST != 2
       `;
+      // Estado 2 asume Inactivo/Finalizado según el seed script
       const result = await connection.execute(sql, { email });
       return NextResponse.json(result.rows || [], { status: 200 });
     }
 
     if (usuarioId) {
-      // Buscar el guardián activo del propio usuario
+      // Buscar el guardián activo del propio usuario (conductor/creador del viaje)
       const sql = `
-        SELECT ID_GUA as "id", ESTADO_VIAJE_GUA as "estado", TIEMPO_ESTIMADO_MIN_GUA as "tiempo"
-        FROM GUARDIAN
-        WHERE USUARIO_ID_USU = :usuarioId AND ESTADO_VIAJE_GUA != 'FINALIZADO'
+        SELECT g.ID_GUA as "id", es.ESTADO_EST_GUA as "estado"
+        FROM GUARDIANES g
+        JOIN VIAJES v ON g.VIAJES_ID_VIA = v.ID_VIA
+        JOIN ESTADOS_GUA es ON g.ESTADO_ID_EST = es.ID_EST_GUA
+        WHERE v.USUARIOS_ID_USU = :usuarioId AND g.ESTADO_ID_EST != 2
       `;
       const result = await connection.execute(sql, { usuarioId });
       return NextResponse.json(result.rows[0] || null, { status: 200 });
@@ -62,47 +61,38 @@ export async function GET(req) {
   }
 }
 
-/**
- * POST: Activar un nuevo guardián para un viaje
- */
 export async function POST(req) {
   let connection;
   try {
-    const { viajeId, usuarioId, email, tiempo } = await req.json();
+    const { viajeId, email } = await req.json();
 
-    if (!viajeId || !usuarioId || !email || !tiempo) {
+    if (!viajeId || !email) {
       return NextResponse.json({ error: 'Faltan campos' }, { status: 400 });
     }
 
     connection = await getConnection();
     
     // Validar que el correo del contacto exista en la plataforma (insensible a mayúsculas)
-    const checkUserSql = `SELECT ID_USU FROM USUARIO WHERE UPPER(CORREO_USU) = UPPER(:email)`;
+    const checkUserSql = `SELECT ID_USU FROM USUARIOS WHERE UPPER(CORREO_USU) = UPPER(:email)`;
     const userRes = await connection.execute(checkUserSql, { email }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
-    
     if (userRes.rows.length === 0) {
       return NextResponse.json({ error: 'El correo de contacto no corresponde a un usuario registrado en BYCAR' }, { status: 404 });
     }
 
     const idGua = Date.now();
-    console.log('Activando Guardián:', { idGua, viajeId, usuarioId, email, tiempo });
 
     const sql = `
-      INSERT INTO GUARDIAN (ID_GUA, ID_VIA, USUARIO_ID_USU, EMAIL_CONFIANZA_GUA, TIEMPO_ESTIMADO_MIN_GUA, ESTADO_VIAJE_GUA, FECHA_INICIO_GUA)
-      VALUES (:idGua, :viajeId, :usuarioId, :email, :tiempo, 'INICIADO', CURRENT_TIMESTAMP)
+      INSERT INTO GUARDIANES (ID_GUA, EMAIL_CONFIANZA_GUA, FECHA_INICIO_GUA, VIAJES_ID_VIA, ESTADO_ID_EST)
+      VALUES (:idGua, :email, SYSTIMESTAMP, :viajeId, 1)
     `;
+    // Estado 1 asume Activo/Iniciado
 
     await connection.execute(sql, { 
       idGua: Number(idGua), 
       viajeId: Number(viajeId), 
-      usuarioId: Number(usuarioId), 
-      email, 
-      tiempo: Number(tiempo) 
+      email 
     }, { autoCommit: true });
-
-
-
 
     return NextResponse.json({ message: 'Guardián activado', id: idGua }, { status: 201 });
   } catch (error) {
@@ -113,28 +103,25 @@ export async function POST(req) {
   }
 }
 
-/**
- * PUT: Actualizar estado o reajustar tiempo
- */
 export async function PUT(req) {
   let connection;
   try {
-    const { id, estado, extraTiempo } = await req.json();
+    const { id, estado } = await req.json();
 
     connection = await getConnection();
 
-    if (extraTiempo) {
-      const sql = `UPDATE GUARDIAN SET TIEMPO_ESTIMADO_MIN_GUA = TIEMPO_ESTIMADO_MIN_GUA + :extraTiempo WHERE ID_GUA = :id`;
-      await connection.execute(sql, { extraTiempo, id }, { autoCommit: true });
-      return NextResponse.json({ message: 'Tiempo reajustado' });
-
-    }
-
     if (estado) {
-      const sql = `UPDATE GUARDIAN SET ESTADO_VIAJE_GUA = :estado WHERE ID_GUA = :id`;
-      await connection.execute(sql, { estado, id }, { autoCommit: true });
-      return NextResponse.json({ message: 'Estado actualizado' });
+      // Mapeo básico si el frontend envía el texto en vez del ID
+      const estadoMap = { 
+        'Activo': 1, 'ACTIVO': 1,
+        'Inactivo': 2, 'INACTIVO': 2, 'Finalizado': 2, 'FINALIZADO': 2,
+        'Alerta': 3, 'ALERTA': 3
+      };
+      const estadoId = estadoMap[estado] !== undefined ? estadoMap[estado] : estado;
 
+      const sql = `UPDATE GUARDIANES SET ESTADO_ID_EST = :estadoId WHERE ID_GUA = :id`;
+      await connection.execute(sql, { estadoId: Number(estadoId), id }, { autoCommit: true });
+      return NextResponse.json({ message: 'Estado actualizado' });
     }
 
     return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 });

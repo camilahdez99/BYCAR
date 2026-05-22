@@ -8,16 +8,14 @@ export async function GET(req) {
     connection = await getConnection();
     const sql = `
       SELECT veh.PLACA_VEH as "placa", 
-             veh.MARCA_VEH as "marca", 
-             veh.MODELO_VEH as "modelo", 
-             veh.COLOR_VEH as "color",
+             m.NOMBRE_MAR as "marca", 
              veh.CAPACIDAD_VEH as "capacidad",
-             veh.CONDUCTOR_ID_CON as "idConductor",
+             veh.CONDUCTOR_ID_USU as "idConductor",
              u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "conductor"
-      FROM VEHICULO veh
-      JOIN CONDUCTOR c ON veh.CONDUCTOR_ID_CON = c.ID_CON
-      JOIN USUARIO u ON c.USUARIO_ID_USU = u.ID_USU
-      ORDER BY veh.MARCA_VEH ASC
+      FROM VEHICULOS veh
+      JOIN USUARIOS u ON veh.CONDUCTOR_ID_USU = u.ID_USU
+      JOIN MARCAS m ON veh.MARCA_ID_MAR = m.ID_MAR
+      ORDER BY m.NOMBRE_MAR ASC
     `;
     const result = await connection.execute(sql);
     return NextResponse.json(result.rows || [], { status: 200 });
@@ -35,9 +33,9 @@ export async function GET(req) {
 export async function POST(req) {
   let connection;
   try {
-    const { placa, marca, modelo, color, capacidad, idConductor } = await req.json();
+    const { placa, marcaId, capacidad, idConductor } = await req.json();
 
-    if (!placa || !marca || !color || !capacidad || !idConductor) {
+    if (!placa || !marcaId || !capacidad || !idConductor) {
       return NextResponse.json({ error: 'Todos los campos obligatorios deben ser proporcionados' }, { status: 400 });
     }
 
@@ -47,27 +45,28 @@ export async function POST(req) {
 
     connection = await getConnection();
 
-    const checkCon = await connection.execute(
-      `SELECT ID_CON FROM CONDUCTOR WHERE ID_CON = :id`, { id: idConductor }
+    // Verificar que el usuario/conductor existe
+    const checkUser = await connection.execute(
+      `SELECT ID_USU FROM USUARIOS WHERE ID_USU = :id`, { id: idConductor }
     );
-    if (!checkCon.rows || checkCon.rows.length === 0) {
-      return NextResponse.json({ error: 'El conductor no existe' }, { status: 404 });
+    if (!checkUser.rows || checkUser.rows.length === 0) {
+      return NextResponse.json({ error: 'El usuario/conductor no existe' }, { status: 404 });
     }
 
     const sql = `
-      INSERT INTO VEHICULO (PLACA_VEH, MARCA_VEH, MODELO_VEH, COLOR_VEH, CAPACIDAD_VEH, CONDUCTOR_ID_CON)
-      VALUES (:placa, :marca, :modelo, :color, :capacidad, :idConductor)
+      INSERT INTO VEHICULOS (PLACA_VEH, CAPACIDAD_VEH, CONDUCTOR_ID_USU, MARCA_ID_MAR)
+      VALUES (:placa, :capacidad, :idConductor, :marcaId)
     `;
     await connection.execute(
       sql,
-      { placa: placa.toUpperCase(), marca: marca.toUpperCase(), modelo: modelo || null, color: color.toUpperCase(), capacidad: parseInt(capacidad), idConductor },
+      { placa: placa.toUpperCase(), capacidad: parseInt(capacidad), idConductor, marcaId: parseInt(marcaId) },
       { autoCommit: true }
     );
 
     return NextResponse.json({ message: 'Vehículo registrado exitosamente', placa }, { status: 201 });
   } catch (error) {
     console.error('Error al crear vehículo:', error);
-    if (error.message && error.message.includes('PK_VEHICULO')) {
+    if (error.message && error.message.includes('PK_VEHICULOS')) {
       return NextResponse.json({ error: 'Ya existe un vehículo con esa placa' }, { status: 409 });
     }
     return NextResponse.json({ error: 'Error al crear vehículo: ' + error.message }, { status: 500 });
@@ -84,22 +83,22 @@ export async function PUT(req) {
   try {
     const { searchParams } = new URL(req.url);
     const placa = searchParams.get('placa');
-    const { marca, modelo, color, capacidad } = await req.json();
+    const { marcaId, capacidad } = await req.json();
 
     if (!placa) return NextResponse.json({ error: 'Placa requerida' }, { status: 400 });
-    if (!marca || !color || !capacidad) {
-      return NextResponse.json({ error: 'Marca, color y capacidad son obligatorios' }, { status: 400 });
+    if (!marcaId || !capacidad) {
+      return NextResponse.json({ error: 'Marca y capacidad son obligatorios' }, { status: 400 });
     }
 
     connection = await getConnection();
     const sql = `
-      UPDATE VEHICULO 
-      SET MARCA_VEH = :marca, MODELO_VEH = :modelo, COLOR_VEH = :color, CAPACIDAD_VEH = :capacidad 
+      UPDATE VEHICULOS 
+      SET MARCA_ID_MAR = :marcaId, CAPACIDAD_VEH = :capacidad 
       WHERE PLACA_VEH = :placa
     `;
     await connection.execute(
       sql,
-      { placa, marca: marca.toUpperCase(), modelo: modelo || null, color: color.toUpperCase(), capacidad: parseInt(capacidad) },
+      { placa, marcaId: parseInt(marcaId), capacidad: parseInt(capacidad) },
       { autoCommit: true }
     );
 
@@ -114,7 +113,7 @@ export async function PUT(req) {
   }
 }
 
-// DELETE - Eliminar vehículo y dependencias
+// DELETE - Eliminar vehículo
 export async function DELETE(req) {
   let connection;
   try {
@@ -125,10 +124,8 @@ export async function DELETE(req) {
 
     connection = await getConnection();
 
-    await connection.execute(`DELETE FROM GUARDIAN WHERE ID_VIA IN (SELECT ID_VIA FROM VIAJE WHERE VEHICULO_PLACA_VEH = :placa)`, { placa });
-    await connection.execute(`DELETE FROM SOLICITUD WHERE VIAJE_ID_VIA IN (SELECT ID_VIA FROM VIAJE WHERE VEHICULO_PLACA_VEH = :placa)`, { placa });
-    await connection.execute(`DELETE FROM VIAJE WHERE VEHICULO_PLACA_VEH = :placa`, { placa });
-    await connection.execute(`DELETE FROM VEHICULO WHERE PLACA_VEH = :placa`, { placa }, { autoCommit: true });
+    // ON DELETE CASCADE se encarga de las dependencias
+    await connection.execute(`DELETE FROM VEHICULOS WHERE PLACA_VEH = :placa`, { placa }, { autoCommit: true });
 
     return NextResponse.json({ message: 'Vehículo eliminado correctamente' }, { status: 200 });
   } catch (error) {
