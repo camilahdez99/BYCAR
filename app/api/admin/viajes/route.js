@@ -67,13 +67,29 @@ export async function PUT(req) {
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
-    // Mapa de compatibilidad si el frontend envía texto
-    const estadoMap = { 'Disponible': 1, 'Lleno': 2, 'En Curso': 3, 'Finalizado': 4, 'Cancelado': 5 };
-    const estadoId = estadoMap[estado] !== undefined ? estadoMap[estado] : estado;
-
     connection = await getConnection();
-    const sql = `UPDATE VIAJES SET ESTADO_VIA_ID_EST_VIA = :estadoId WHERE ID_VIA = :id`;
-    await connection.execute(sql, { id, estadoId: Number(estadoId) }, { autoCommit: true });
+    let sql;
+    let binds = { id };
+
+    if (isNaN(estado)) {
+      // Si el estado es un texto, buscar dinámicamente el ID en la BD
+      sql = `
+        UPDATE VIAJES 
+        SET ESTADO_VIA_ID_EST_VIA = (
+          SELECT ID_EST_VIA 
+          FROM ESTADOS_VIA 
+          WHERE UPPER(SUBSTR(ESTADO_EST_VIA, 1, 6)) = UPPER(SUBSTR(:estadoStr, 1, 6))
+          AND ROWNUM = 1
+        )
+        WHERE ID_VIA = :id
+      `;
+      binds.estadoStr = estado;
+    } else {
+      sql = `UPDATE VIAJES SET ESTADO_VIA_ID_EST_VIA = :estadoId WHERE ID_VIA = :id`;
+      binds.estadoId = Number(estado);
+    }
+
+    await connection.execute(sql, binds, { autoCommit: true });
 
     return NextResponse.json({ message: 'Viaje actualizado' }, { status: 200 });
   } catch (error) {

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import oracledb from 'oracledb';
 import { getConnection } from '@/lib/db';
 
 // GET - Obtener todas las marcas registradas
@@ -11,7 +12,7 @@ export async function GET(req) {
       FROM MARCAS
       ORDER BY NOMBRE_MAR ASC
     `;
-    const result = await connection.execute(sql);
+    const result = await connection.execute(sql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
     return NextResponse.json(result.rows || [], { status: 200 });
   } catch (error) {
     console.error('Error al obtener marcas:', error);

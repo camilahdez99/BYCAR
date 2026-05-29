@@ -1,19 +1,22 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
-
-import { MUNICIPIOS } from '@/lib/municipios';
 
 const normalizar = (str) => {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 };
 
-const Autocomplete = ({ placeholder, value, onChange }) => {
-  const [filtered, setFiltered] = useState([]);
+const Autocomplete = ({ placeholder, value, onChange, opciones = [] }) => {
   const [show, setShow] = useState(false);
   const wrapperRef = useRef(null);
+
+  // Derivar opciones filtradas dinámicamente (opciones es [{id, nombre}])
+  const valNorm = normalizar(value || "");
+  const filtered = valNorm.length > 0 
+    ? opciones.filter(m => normalizar(m.nombre || m).includes(valNorm))
+    : [];
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -28,8 +31,7 @@ const Autocomplete = ({ placeholder, value, onChange }) => {
   const handleChange = (e) => {
     const val = normalizar(e.target.value);
     onChange(val);
-    if (val.length > 0) {
-      setFiltered(MUNICIPIOS.filter(m => m.includes(val)));
+    if (val.trim().length > 0) {
       setShow(true);
     } else {
       setShow(false);
@@ -50,9 +52,7 @@ const Autocomplete = ({ placeholder, value, onChange }) => {
         value={value} 
         onChange={handleChange} 
         onFocus={() => { if(value) setShow(true) }}
-        onBlur={() => {
-          setTimeout(() => setShow(false), 200);
-        }}
+        onBlur={() => { setTimeout(() => setShow(false), 200); }}
         required
       />
       {show && filtered.length > 0 && (
@@ -66,8 +66,8 @@ const Autocomplete = ({ placeholder, value, onChange }) => {
         }}>
           {filtered.map(m => (
             <li 
-              key={m} 
-              onMouseDown={() => handleSelect(m)} 
+              key={m.id || m} 
+              onMouseDown={() => handleSelect(m.nombre || m)} 
               style={{ 
                 padding: '10px 14px', cursor: 'pointer', borderRadius: '8px',
                 fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)',
@@ -82,13 +82,22 @@ const Autocomplete = ({ placeholder, value, onChange }) => {
                 e.target.style.color = 'rgba(255,255,255,0.8)';
               }}
             >
-              {m}
+              {m.nombre || m}
             </li>
           ))}
         </ul>
       )}
     </div>
   );
+};
+
+// Iconos para los menús según la URL
+const MENU_ICONS = {
+  '/inicio':      'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  '/mis-rutas':   'M3 12h18M3 6h18M3 18h18',
+  '/solicitudes': 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 7a4 4 0 100-8 4 4 0 000 8z',
+  '/mensajes':    'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z',
+  '/guardian':    'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
 };
 
 export default function DashboardPage() {
@@ -106,6 +115,11 @@ export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [mensajes, setMensajes] = useState([]);
 
+  // --- CATÁLOGOS DINÁMICOS ---
+  const [menuItems, setMenuItems] = useState([]);
+  const [marcas, setMarcas] = useState([]);
+  const [municipiosDB, setMunicipiosDB] = useState([]);
+
   // --- ESTADO PARA BÚSQUEDA ---
   const [searchParams, setSearchParams] = useState({ origen: '', destino: '' });
   const [resultados, setResultados] = useState([]);
@@ -118,7 +132,7 @@ export default function DashboardPage() {
 
   // --- ESTADO PARA LA NUEVA RUTA ---
   const [nuevaRuta, setNuevaRuta] = useState({
-    origen: '', destino: '', carro: '', placa: '', fecha: '', puestos: '', valor: '', comentarios: ''
+    origen: '', destino: '', marca: '', carro: '', placa: '', fecha: '', puestos: '', valor: '', comentarios: ''
   });
 
   // --- ESTADO PARA GUARDIÁN ---
@@ -135,6 +149,30 @@ export default function DashboardPage() {
   const [showReadjustModal, setShowReadjustModal] = useState(false);
   const [guardianId, setGuardianId] = useState(null);
 
+  // Refs para que el temporizador siempre lea los valores más recientes
+  // sin reiniciarse en cada cambio de estado
+  const guardianPreAlertaRef = useRef(false);
+  const guardianAlertaEnviadaRef = useRef(false);
+  const guardianIdRef = useRef(null);
+
+  // Sincronizar refs con el estado
+  useEffect(() => { guardianPreAlertaRef.current = guardianPreAlerta; }, [guardianPreAlerta]);
+  useEffect(() => { guardianAlertaEnviadaRef.current = guardianAlertaEnviada; }, [guardianAlertaEnviada]);
+  useEffect(() => { guardianIdRef.current = guardianId; }, [guardianId]);
+
+
+  // Cargar catálogos dinámicos (menús, marcas, municipios)
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/menus').then(r => r.ok ? r.json() : []),
+      fetch('/api/marcas').then(r => r.ok ? r.json() : []),
+      fetch('/api/municipios').then(r => r.ok ? r.json() : []),
+    ]).then(([menus, marcasData, municipiosData]) => {
+      setMenuItems(menus);
+      setMarcas(marcasData);
+      setMunicipiosDB(municipiosData.map(m => ({ id: m.id || m.ID_MUN, nombre: m.nombre || m.NOMBRE_MUN || '' })));
+    }).catch(err => console.error('Error cargando catálogos:', err));
+  }, []);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -149,10 +187,11 @@ export default function DashboardPage() {
         const uIdChat = storedUser ? (storedUser.ID_USU || storedUser.id_usu || storedUser.id) : null;
         if (!uIdChat) return;
 
-        const [resRutas, resSol, resMensajes] = await Promise.all([
+        const [resRutas, resSol, resMensajes, resGuardian] = await Promise.all([
           fetch(`/api/viajes/mis-rutas?usuarioId=${uIdChat}`),
           fetch(`/api/solicitudes/recibidas?usuarioId=${uIdChat}`),
-          fetch(`/api/mensajes/chats?usuarioId=${uIdChat}`)
+          fetch(`/api/mensajes/chats?usuarioId=${uIdChat}`),
+          fetch(`/api/guardian?usuarioId=${uIdChat}`)
         ]);
         if (resRutas.ok) {
           const dataRutas = await resRutas.json();
@@ -166,6 +205,32 @@ export default function DashboardPage() {
         if (resMensajes && resMensajes.ok) {
           const dataMensajes = await resMensajes.json();
           setMensajes(dataMensajes || []);
+        }
+        if (resGuardian && resGuardian.ok) {
+          const dataGuardian = await resGuardian.json();
+          if (dataGuardian && dataGuardian.id) {
+            const startTime = new Date(dataGuardian.inicio.replace(' ', 'T'));
+            const elapsed = Math.floor((Date.now() - startTime.getTime()) / 1000);
+            const total = dataGuardian.tiempoMin * 60;
+            const remaining = Math.max(total - elapsed, 0);
+
+            setGuardianId(dataGuardian.id);
+            setGuardianViaje({
+              id: dataGuardian.viajeId,
+              origen: dataGuardian.origen,
+              destino: dataGuardian.destino,
+              conductor: dataGuardian.conductor,
+              placa: dataGuardian.placa,
+              carro: dataGuardian.carro
+            });
+            setGuardianConfig({ email: dataGuardian.email, tiempoMin: dataGuardian.tiempoMin });
+            setGuardianHoraInicio(startTime);
+            setGuardianTiempoRestante(remaining);
+            setGuardianActivo(true);
+            if (remaining <= 0 && dataGuardian.estado?.toUpperCase() !== 'ALERTA') {
+              setGuardianAlertaEnviada(true);
+            }
+          }
         }
       } catch (error) {
         console.error('Error al cargar datos del dashboard', error);
@@ -225,37 +290,43 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [activePage, currentUser]);
 
+  // Temporizador del Guardián — SÓLO se reinicia cuando guardianActivo cambia
   useEffect(() => {
-    if (!guardianActivo || guardianTiempoRestante <= 0) return;
+    if (!guardianActivo) return;
+
     const timer = setInterval(() => {
       setGuardianTiempoRestante(prev => {
         const next = prev - 1;
-        
-        // 5 minutos antes (300 seg)
-        if (next === 300 && !guardianPreAlerta) {
+
+        // 5 minutos antes (300 seg) → pre-alerta
+        if (next === 300 && !guardianPreAlertaRef.current) {
           setGuardianPreAlerta(true);
           setShowReadjustModal(true);
           toast('⚠️ ¿Has llegado? Tu tiempo está por terminar.', { duration: 10000, icon: '🔔' });
         }
 
-        // Si se acaba el tiempo
-        if (next <= 0 && !guardianAlertaEnviada) {
+        // Tiempo agotado → alerta real
+        if (next <= 0 && !guardianAlertaEnviadaRef.current) {
           setGuardianAlertaEnviada(true);
           toast.error('🚨 TIEMPO AGOTADO. Alerta activada para tu contacto.', { duration: 15000 });
-          // Sincronizar con DB
-          if (guardianId) {
+          // Sincronizar estado con la BD
+          const gId = guardianIdRef.current;
+          if (gId) {
             fetch('/api/guardian', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: guardianId, estado: 'ALERTA' })
+              body: JSON.stringify({ id: gId, estado: 'Alerta' })
             });
           }
+          clearInterval(timer);
         }
+
         return Math.max(next, 0);
       });
     }, 1000);
+
     return () => clearInterval(timer);
-  }, [guardianActivo, guardianTiempoRestante, guardianPreAlerta, guardianAlertaEnviada, guardianId]);
+  }, [guardianActivo]); // ← SOLO depende de si está activo
 
   const iniciarGuardian = async (viaje) => {
     if (!guardianConfig.email || !guardianConfig.tiempoMin) {
@@ -280,13 +351,15 @@ export default function DashboardPage() {
 
       const data = await res.json();
       if (res.ok) {
+        const horaInicio = new Date();
+
         setGuardianId(data.id);
         setGuardianViaje(viaje);
         setGuardianActivo(true);
         setGuardianFinalizado(false);
         setGuardianAlertaEnviada(false);
         setGuardianPreAlerta(false);
-        setGuardianHoraInicio(new Date());
+        setGuardianHoraInicio(horaInicio);
         setGuardianTiempoRestante(guardianConfig.tiempoMin * 60);
         setGuardianConfigOpen(false);
         toast.success('🛡️ Guardián activado en base de datos. ¡Buen viaje!');
@@ -304,7 +377,7 @@ export default function DashboardPage() {
       await fetch('/api/guardian', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: guardianId, estado: 'FINALIZADO' })
+        body: JSON.stringify({ id: guardianId, estado: 'Inactivo' })
       });
     }
     setGuardianActivo(false);
@@ -321,6 +394,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: guardianId, extraTiempo: 15 })
       });
+      
       setGuardianTiempoRestante(prev => prev + (15 * 60));
       setGuardianPreAlerta(false);
       setShowReadjustModal(false);
@@ -508,13 +582,21 @@ export default function DashboardPage() {
   const aceptarSolicitud = (id) => gestionarSolicitud(id, 'Aceptado');
   const rechazarSolicitud = (id) => gestionarSolicitud(id, 'Rechazado');
 
-  const navItems = [
-    { id: 'inicio', label: 'Inicio', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
-    { id: 'mis-rutas', label: 'Mis rutas', icon: 'M3 12h18M3 6h18M3 18h18' },
-    { id: 'solicitudes', label: 'Solicitudes', icon: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 7a4 4 0 100-8 4 4 0 000 8z', badge: solicitudesRecibidas.length },
-    { id: 'mensajes', label: 'Mensajes', icon: 'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z' },
-    { id: 'guardian', label: 'Guardián', icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' }
-  ];
+  // Construir navItems dinámicamente desde la BD (MENUS)
+  const navItems = menuItems.length > 0
+    ? menuItems.map(m => ({
+        id: m.url ? m.url.replace('/', '') : m.id,
+        label: m.label,
+        icon: MENU_ICONS[m.url] || 'M3 12h18M3 6h18M3 18h18',
+        badge: m.url === '/solicitudes' ? solicitudesRecibidas.length : 0,
+      }))
+    : [
+        { id: 'inicio',      label: 'Inicio',      icon: MENU_ICONS['/inicio'] },
+        { id: 'mis-rutas',   label: 'Mis Rutas',   icon: MENU_ICONS['/mis-rutas'] },
+        { id: 'solicitudes', label: 'Solicitudes',  icon: MENU_ICONS['/solicitudes'], badge: solicitudesRecibidas.length },
+        { id: 'mensajes',    label: 'Mensajes',     icon: MENU_ICONS['/mensajes'] },
+        { id: 'guardian',    label: 'Guardian',     icon: MENU_ICONS['/guardian'] },
+      ];
 
   return (
     <div className="dashboard-container">
@@ -546,11 +628,17 @@ export default function DashboardPage() {
         .btn-red { background: var(--red); color: #fff; border: none; padding: 0.7rem 1.4rem; border-radius: 10px; font-weight: 700; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
         .btn-red:disabled { background: #333; color: var(--muted); cursor: not-allowed; }
         .badge-status { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: bold; }
-        .Aceptado { background: rgba(74, 222, 128, 0.1); color: #4ade80; }
+        .Aceptado, .Aceptada { background: rgba(74, 222, 128, 0.1); color: #4ade80; }
         .Pendiente { background: rgba(250, 204, 21, 0.1); color: #facc15; }
-        .search-input { width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 12px; color: #fff; outline: none; text-transform: uppercase; font-size: 0.85rem; transition: all 0.2s; }
+        .Rechazado, .Rechazada { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+        .Cancelado, .Cancelada { background: rgba(156, 163, 175, 0.1); color: #9ca3af; }
+        .search-input { width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 12px; color: #fff; outline: none; text-transform: uppercase; font-size: 0.85rem; transition: all 0.2s; box-sizing: border-box; }
         .search-input:focus { border-color: var(--red); background: rgba(255,255,255,0.08); box-shadow: 0 0 0 2px rgba(229,34,34,0.1); }
         .uppercase-input { text-transform: uppercase; }
+        select.search-input { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; text-transform: none; }
+        select.search-input option { background: #1a1a1a; color: #fff; text-transform: none; }
+        .nav-skeleton { height: 44px; background: rgba(255,255,255,0.04); border-radius: 8px; margin: 4px 16px; animation: pulse 1.5s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.8; } }
         
         @media (max-width: 768px) {
           .sidebar { display: none; }
@@ -581,13 +669,18 @@ export default function DashboardPage() {
           <span style={{ fontFamily: 'Syne', fontWeight: 800 }}>Bycar</span>
         </div>
         <nav style={{ flex: 1 }}>
-          {navItems.map((item) => (
-            <div key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} onClick={() => setActivePage(item.id)}>
-              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d={item.icon} /></svg>
-              {item.label}
-              {item.badge > 0 && <span style={{ background: 'var(--red)', color: '#fff', borderRadius: '10px', padding: '1px 6px', fontSize: '0.7rem', marginLeft: 'auto' }}>{item.badge}</span>}
-            </div>
-          ))}
+          {menuItems.length === 0 ? (
+            // Skeleton de carga mientras llegan los menús de la BD
+            [1,2,3,4,5].map(i => <div key={i} className="nav-skeleton" />)
+          ) : (
+            navItems.map((item) => (
+              <div key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} onClick={() => setActivePage(item.id)}>
+                <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d={item.icon} /></svg>
+                {item.label}
+                {item.badge > 0 && <span style={{ background: 'var(--red)', color: '#fff', borderRadius: '10px', padding: '1px 6px', fontSize: '0.7rem', marginLeft: 'auto' }}>{item.badge}</span>}
+              </div>
+            ))
+          )}
         </nav>
 
         <div style={{ padding: '1.5rem', borderTop: '1px solid var(--border)' }}>
@@ -637,8 +730,8 @@ export default function DashboardPage() {
                   <h3 style={{ fontFamily: 'Syne', fontSize: '1.4rem', fontWeight: 800 }}>¿Buscas un viaje?</h3>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <Autocomplete placeholder="Origen" value={searchParams.origen} onChange={(val) => setSearchParams({...searchParams, origen: val.toUpperCase()})} />
-                  <Autocomplete placeholder="Destino" value={searchParams.destino} onChange={(val) => setSearchParams({...searchParams, destino: val.toUpperCase()})} />
+                  <Autocomplete placeholder="Origen" value={searchParams.origen} opciones={municipiosDB} onChange={(val) => setSearchParams({...searchParams, origen: val.toUpperCase()})} />
+                  <Autocomplete placeholder="Destino" value={searchParams.destino} opciones={municipiosDB} onChange={(val) => setSearchParams({...searchParams, destino: val.toUpperCase()})} />
                   <button className="btn-red" style={{ width: '100%', justifyContent: 'center', padding: '1rem', marginTop: '0.5rem' }} onClick={() => { buscarViajes(); setActivePage('buscar'); }}>
                     Buscar rutas disponibles
                   </button>
@@ -847,12 +940,17 @@ export default function DashboardPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
                 <div>
                   <h3 style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '1px' }}>🛡️ Proteger mi viaje (Hoy)</h3>
-                  {rutasSolicitadas.filter(r => r.estado === 'Aceptado' && r.fecha === new Date().toLocaleDateString('en-CA')).length === 0 ? (
+                  {(() => {
+                    const d = new Date();
+                    const todayStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    const viajesHoy = rutasSolicitadas.filter(r => (r.estado?.toUpperCase().startsWith('ACEPTAD')) && r.fecha === todayStr);
+                    
+                    return viajesHoy.length === 0 ? (
                     <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '20px', padding: '2rem', textAlign: 'center' }}>
                       <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No tienes viajes aceptados para el día de hoy.</p>
                     </div>
                   ) : (
-                    rutasSolicitadas.filter(r => r.estado === 'Aceptado' && r.fecha === new Date().toLocaleDateString('en-CA')).map(viaje => (
+                    viajesHoy.map(viaje => (
 
 
                       <div key={viaje.id} className="route-card" style={{ cursor: 'pointer' }} onClick={() => { setGuardianViaje(viaje); setGuardianConfigOpen(true); }}>
@@ -863,7 +961,7 @@ export default function DashboardPage() {
                         <div style={{ background: 'rgba(229,34,34,0.1)', color: 'var(--red)', padding: '6px 12px', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.75rem' }}>Activar</div>
                       </div>
                     ))
-                  )}
+                  ); })()}
                 </div>
 
                 <div>
@@ -874,10 +972,10 @@ export default function DashboardPage() {
                     </div>
                   ) : (
                     alertasRecibidas.map(alerta => (
-                      <div key={alerta.id} className="route-card" style={{ border: alerta.estado === 'ALERTA' ? '1px solid var(--red)' : '1px solid var(--border)', background: alerta.estado === 'ALERTA' ? 'rgba(229,34,34,0.05)' : 'var(--card)' }}>
+                      <div key={alerta.id} className="route-card" style={{ border: alerta.estado?.toUpperCase() === 'ALERTA' ? '1px solid var(--red)' : '1px solid var(--border)', background: alerta.estado?.toUpperCase() === 'ALERTA' ? 'rgba(229,34,34,0.05)' : 'var(--card)' }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                             <strong style={{ color: alerta.estado === 'ALERTA' ? 'var(--red)' : '#fff' }}>{alerta.estado === 'ALERTA' ? '⚠️ ALERTA: ' : '✅ EN RUTA: '}{alerta.pasajero}</strong>
+                             <strong style={{ color: alerta.estado?.toUpperCase() === 'ALERTA' ? 'var(--red)' : '#fff' }}>{alerta.estado?.toUpperCase() === 'ALERTA' ? '⚠️ ALERTA: ' : '✅ EN RUTA: '}{alerta.pasajero}</strong>
                              <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>{alerta.inicio}</span>
                           </div>
                           <p style={{ fontSize: '0.85rem', margin: '4px 0' }}>{alerta.origen} → {alerta.destino}</p>
@@ -996,11 +1094,25 @@ export default function DashboardPage() {
               <h2 style={{ fontFamily: 'Syne', fontSize: '1.6rem', fontWeight: 800, marginBottom: '1.5rem', color: 'var(--red)' }}>Publicar nuevo viaje</h2>
               <form onSubmit={guardarRuta} style={{ display: 'grid', gap: '1rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <Autocomplete placeholder="Origen" value={nuevaRuta.origen} onChange={(val) => setNuevaRuta({...nuevaRuta, origen: val.toUpperCase()})} />
-                  <Autocomplete placeholder="Destino" value={nuevaRuta.destino} onChange={(val) => setNuevaRuta({...nuevaRuta, destino: val.toUpperCase()})} />
+                  <Autocomplete placeholder="Origen" value={nuevaRuta.origen} opciones={municipiosDB} onChange={(val) => setNuevaRuta({...nuevaRuta, origen: val.toUpperCase()})} />
+                  <Autocomplete placeholder="Destino" value={nuevaRuta.destino} opciones={municipiosDB} onChange={(val) => setNuevaRuta({...nuevaRuta, destino: val.toUpperCase()})} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <input name="carro" className="search-input" placeholder="Vehículo (Ej: MAZDA 3)" value={nuevaRuta.carro} onChange={handleInputChange} required />
+                  <select
+                    name="marca"
+                    className="search-input"
+                    value={nuevaRuta.marca}
+                    onChange={(e) => setNuevaRuta({...nuevaRuta, marca: e.target.value, carro: e.target.value})}
+                    required
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <option value="">Marca del vehículo</option>
+                    {marcas.map(m => (
+                      <option key={m.id || m.ID_MAR} value={m.nombre || m.NOMBRE_MAR}>
+                        {m.nombre || m.NOMBRE_MAR}
+                      </option>
+                    ))}
+                  </select>
                   <input name="placa" className="search-input" placeholder="Placa (Ej: XYZ123)" value={nuevaRuta.placa} onChange={handleInputChange} required />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>

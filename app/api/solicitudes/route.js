@@ -40,18 +40,31 @@ export async function PUT(req) {
       return NextResponse.json({ error: 'ID de solicitud y estado son requeridos' }, { status: 400 });
     }
 
-    // Mapa de compatibilidad si el frontend sigue enviando texto
-    const estadoMap = { 
-      'Pendiente': 1, 'PENDIENTE': 1, 
-      'Aceptada': 2, 'Aceptado': 2, 'ACEPTADA': 2, 'ACEPTADO': 2,
-      'Rechazada': 3, 'Rechazado': 3, 'RECHAZADA': 3, 'RECHAZADO': 3,
-      'Cancelada': 4, 'Cancelado': 4, 'CANCELADA': 4, 'CANCELADO': 4
-    };
-    const estadoId = estadoMap[estado] !== undefined ? estadoMap[estado] : estado;
-
     connection = await getConnection();
-    const sql = `UPDATE SOLICITUDES SET ESTADO_ID_EST = :estadoId WHERE ID_SOL = :solicitudId`;
-    await connection.execute(sql, { estadoId: Number(estadoId), solicitudId }, { autoCommit: true });
+    
+    let sql;
+    let binds = { solicitudId };
+    
+    if (isNaN(estado)) {
+      // Si el estado es un texto, buscar dinámicamente el ID en la BD
+      sql = `
+        UPDATE SOLICITUDES 
+        SET ESTADO_ID_EST = (
+          SELECT ID_EST_SOL 
+          FROM ESTADOS_SOL 
+          WHERE UPPER(SUBSTR(ESTADO_EST_SOL, 1, 6)) = UPPER(SUBSTR(:estadoStr, 1, 6))
+          AND ROWNUM = 1
+        )
+        WHERE ID_SOL = :solicitudId
+      `;
+      binds.estadoStr = estado;
+    } else {
+      // Si el frontend ya envió el ID numérico
+      sql = `UPDATE SOLICITUDES SET ESTADO_ID_EST = :estadoId WHERE ID_SOL = :solicitudId`;
+      binds.estadoId = Number(estado);
+    }
+
+    await connection.execute(sql, binds, { autoCommit: true });
 
     return NextResponse.json({ message: 'Solicitud actualizada' }, { status: 200 });
   } catch (error) {
