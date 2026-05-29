@@ -64,7 +64,7 @@ export default function LandingPage() {
 
   return (
     <>
-      <style jsx global>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
           --red: #E52222;
@@ -386,7 +386,7 @@ export default function LandingPage() {
           .hero h1 { font-size: 2.8rem; }
           footer { flex-direction: column; gap: 1.5rem; text-align: center; }
         }
-      `}</style>
+      ` }} />
 
       {/* ── NAV ── */}
       <nav className={navScrolled ? 'scrolled' : ''}>

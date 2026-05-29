@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
+import HydrationWrapper from '@/components/admin/HydrationWrapper';
 
 const normalizar = (str) => {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
@@ -195,16 +196,16 @@ export default function DashboardPage() {
         ]);
         if (resRutas.ok) {
           const dataRutas = await resRutas.json();
-          setRutasPublicadas((dataRutas.publicadas || []).sort((a, b) => b.id - a.id));
-          setRutasSolicitadas((dataRutas.solicitadas || []).sort((a, b) => b.id - a.id));
+          setRutasPublicadas((Array.isArray(dataRutas.publicadas) ? dataRutas.publicadas : []).sort((a, b) => b.id - a.id));
+          setRutasSolicitadas((Array.isArray(dataRutas.solicitadas) ? dataRutas.solicitadas : []).sort((a, b) => b.id - a.id));
         }
         if (resSol.ok) {
           const dataSol = await resSol.json();
-          setSolicitudesRecibidas(dataSol || []);
+          setSolicitudesRecibidas(Array.isArray(dataSol) ? dataSol : []);
         }
         if (resMensajes && resMensajes.ok) {
           const dataMensajes = await resMensajes.json();
-          setMensajes(dataMensajes || []);
+          setMensajes(Array.isArray(dataMensajes) ? dataMensajes : []);
         }
         if (resGuardian && resGuardian.ok) {
           const dataGuardian = await resGuardian.json();
@@ -249,7 +250,7 @@ export default function DashboardPage() {
       if (activePage === 'solicitudes') {
         fetch(`/api/solicitudes/recibidas?usuarioId=${uId}`)
           .then(res => res.json())
-          .then(data => setSolicitudesRecibidas(data || []))
+          .then(data => setSolicitudesRecibidas(Array.isArray(data) ? data : []))
           .catch(err => console.error(err));
       }
       
@@ -258,8 +259,8 @@ export default function DashboardPage() {
         fetch(`/api/viajes/mis-rutas?usuarioId=${uId}`)
           .then(res => res.json())
           .then(data => {
-            setRutasPublicadas((data.publicadas || []).sort((a, b) => b.id - a.id));
-            setRutasSolicitadas((data.solicitadas || []).sort((a, b) => b.id - a.id));
+            setRutasPublicadas((Array.isArray(data.publicadas) ? data.publicadas : []).sort((a, b) => b.id - a.id));
+            setRutasSolicitadas((Array.isArray(data.solicitadas) ? data.solicitadas : []).sort((a, b) => b.id - a.id));
           })
           .catch(err => console.error(err));
       }
@@ -268,7 +269,7 @@ export default function DashboardPage() {
       if (activePage === 'mensajes') {
         fetch(`/api/mensajes/chats?usuarioId=${uId}`)
           .then(res => res.json())
-          .then(data => setMensajes(data || []))
+          .then(data => setMensajes(Array.isArray(data) ? data : []))
           .catch(err => console.error(err));
       }
       // Refresh guardian alerts
@@ -277,7 +278,7 @@ export default function DashboardPage() {
           const email = currentUser.CORREO_USU || currentUser.correo_usu;
           fetch(`/api/guardian?email=${email}`)
             .then(res => res.json())
-            .then(data => setAlertasRecibidas(data || []))
+            .then(data => setAlertasRecibidas(Array.isArray(data) ? data : []))
             .catch(err => console.error(err));
         }
       }
@@ -599,7 +600,8 @@ export default function DashboardPage() {
       ];
 
   return (
-    <div className="dashboard-container">
+    <HydrationWrapper>
+      <div className="dashboard-container">
       <style jsx global>{`
         :root {
           --red: #E52222;
@@ -1172,6 +1174,7 @@ export default function DashboardPage() {
         )}
       </main>
 
-    </div>
+      </div>
+    </HydrationWrapper>
   );
 }

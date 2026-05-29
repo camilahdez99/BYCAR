@@ -1,8 +1,8 @@
-"use client"
+"use client";
 import React, { useState, useEffect } from 'react';
-import HydrationWrapper from '@/components/admin/HydrationWrapper';
 import PermisosManager from '@/app/components/admin/PermisosManager';
 import DynamicForm from '@/components/DynamicForm';
+import HydrationWrapper from '@/components/admin/HydrationWrapper';
 import { Plus, Edit2, Trash2, Search, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
