@@ -11,54 +11,32 @@ import { toast } from 'react-hot-toast';
  *  - onClose: function to close modal
  *  - onRefresh: function to reload data after successful save
  */
-export default function DynamicForm({ tabla, columnaMeta, registroInicial, onClose, onRefresh }) {
+export default function DynamicForm({ table, columns, initialData, onSubmit, onCancel, loading }) {
   const [form, setForm] = useState({});
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (registroInicial) {
-      setForm(registroInicial);
+    if (initialData) {
+      setForm(initialData);
     } else {
-      // initialize with empty values for each column (except PK which may be auto-generated)
       const empty = {};
-      columnaMeta.forEach(col => {
-        empty[col.COLUMN_NAME] = '';
-      });
+      if (columns) {
+        columns.forEach(col => {
+          empty[col.COLUMN_NAME] = '';
+        });
+      }
       setForm(empty);
     }
-  }, [registroInicial, columnaMeta]);
+  }, [initialData, columns]);
 
   const handleChange = e => {
     const { name, value } = e.target;
     setForm(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = async e => {
+  const handleSubmitInternal = async e => {
     e.preventDefault();
-    setSaving(true);
-    const isEdit = Boolean(registroInicial);
-    const urlBase = `/api/admin/tablas?tabla=${tabla}`;
-    const url = isEdit ? `${urlBase}&id=${registroInicial.id || registroInicial[Object.keys(registroInicial)[0]]}` : urlBase;
-    const method = isEdit ? 'PUT' : 'POST';
-    const t = toast.loading(isEdit ? 'Actualizando...' : 'Creando...');
-    try {
-      const r = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-      if (r.ok) {
-        toast.success(isEdit ? 'Actualizado' : 'Creado', { id: t });
-        onClose();
-        onRefresh();
-      } else {
-        const err = await r.json();
-        toast.error(err.error || 'Error', { id: t });
-      }
-    } catch (e) {
-      toast.error(e.message, { id: t });
-    } finally {
-      setSaving(false);
+    if (onSubmit) {
+      onSubmit(form);
     }
   };
 
@@ -72,8 +50,8 @@ export default function DynamicForm({ tabla, columnaMeta, registroInicial, onClo
   };
 
   return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
-      {columnaMeta.map(col => (
+    <form className="space-y-4" onSubmit={handleSubmitInternal}>
+      {columns && columns.map(col => (
         <div key={col.COLUMN_NAME} className="grid grid-cols-1 gap-1">
           <label className="block text-xs text-white/50 font-medium">{col.COLUMN_NAME}</label>
           <input
@@ -87,11 +65,11 @@ export default function DynamicForm({ tabla, columnaMeta, registroInicial, onClo
         </div>
       ))}
       <div className="flex gap-3 pt-2">
-        <button type="button" onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-lg border border-white/10 text-white/60 hover:bg-white/5 text-sm transition-colors">
+        <button type="button" onClick={onCancel} disabled={loading} className="flex-1 py-2.5 rounded-lg border border-white/10 text-white/60 hover:bg-white/5 text-sm transition-colors">
           Cancelar
         </button>
-        <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-lg bg-[#E52222] hover:bg-[#c71c1c] text-white text-sm font-semibold transition-colors disabled:opacity-50">
-          {saving ? 'Guardando...' : (registroInicial ? 'Actualizar' : 'Crear')}
+        <button type="submit" disabled={loading} className="flex-1 py-2.5 rounded-lg bg-[#E52222] hover:bg-[#c71c1c] text-white text-sm font-semibold transition-colors disabled:opacity-50">
+          {loading ? 'Guardando...' : (initialData ? 'Actualizar' : 'Crear')}
         </button>
       </div>
     </form>

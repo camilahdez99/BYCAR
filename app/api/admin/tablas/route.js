@@ -14,8 +14,8 @@ const sanitizeTable = (name) => {
 const getPrimaryKey = async (connection, tabla) => {
   const pkSql = `
     SELECT cols.column_name
-    FROM all_constraints cons
-    JOIN all_cons_columns cols
+    FROM user_constraints cons
+    JOIN user_cons_columns cols
       ON cons.constraint_name = cols.constraint_name
     WHERE cons.constraint_type = 'P'
       AND cons.table_name = :tabla
@@ -33,7 +33,7 @@ const getPrimaryKey = async (connection, tabla) => {
 const getColumnsInfo = async (connection, tabla) => {
   const sql = `
     SELECT column_name, data_type
-    FROM all_tab_columns
+    FROM user_tab_columns
     WHERE table_name = :tabla
   `;
 
@@ -140,12 +140,23 @@ export async function POST(req) {
     connection = await getConnection();
 
     const colsInfo = await getColumnsInfo(connection, t);
-
-    const cols = Object.keys(data).filter((k) =>
-      colsInfo.some(
-        (c) => c.COLUMN_NAME === k.toUpperCase()
-      )
-    );
+    
+    const bindData = {};
+    const cols = [];
+    for (const k of Object.keys(data)) {
+      const info = colsInfo.find(c => c.COLUMN_NAME === k.toUpperCase());
+      if (info) {
+        if (data[k] === '') {
+          continue; // omit empty fields so default values / sequences work
+        }
+        let val = data[k];
+        if (info.DATA_TYPE.includes('DATE') || info.DATA_TYPE.includes('TIMESTAMP')) {
+          val = new Date(val);
+        }
+        cols.push(k);
+        bindData[k] = val;
+      }
+    }
 
     const placeholders = cols.map((c) => `:${c}`);
 
@@ -157,7 +168,7 @@ export async function POST(req) {
 
     await connection.execute(
       sql,
-      data,
+      bindData,
       { autoCommit: true }
     );
 
@@ -206,11 +217,21 @@ export async function PUT(req) {
 
     const colsInfo = await getColumnsInfo(connection, t);
 
-    const cols = Object.keys(data).filter((k) =>
-      colsInfo.some(
-        (c) => c.COLUMN_NAME === k.toUpperCase()
-      )
-    );
+    const bindData = { id }; // id string is fine, Oracle will cast
+    const cols = [];
+    for (const k of Object.keys(data)) {
+      const info = colsInfo.find(c => c.COLUMN_NAME === k.toUpperCase());
+      if (info && k.toUpperCase() !== pk) { // no actualizar la llave primaria
+        let val = data[k];
+        if (val === '') {
+          val = null;
+        } else if (info.DATA_TYPE.includes('DATE') || info.DATA_TYPE.includes('TIMESTAMP')) {
+          val = new Date(val);
+        }
+        cols.push(k);
+        bindData[k] = val;
+      }
+    }
 
     const setClause = cols
       .map((c) => `${c.toUpperCase()} = :${c}`)
@@ -224,7 +245,7 @@ export async function PUT(req) {
 
     await connection.execute(
       sql,
-      { ...data, id: Number(id) },
+      bindData,
       { autoCommit: true }
     );
 

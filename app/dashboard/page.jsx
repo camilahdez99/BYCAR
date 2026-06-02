@@ -600,8 +600,7 @@ export default function DashboardPage() {
       ];
 
   return (
-    <HydrationWrapper>
-      <div className="dashboard-container">
+    <>
       <style jsx global>{`
         :root {
           --red: #E52222;
@@ -652,6 +651,8 @@ export default function DashboardPage() {
           .route-card div:last-child { width: 100%; display: flex; justify-content: flex-end; }
         }
       `}</style>
+      <HydrationWrapper>
+        <div className="dashboard-container">
       
       <div className="mobile-nav">
         {navItems.map((item) => (
@@ -1176,5 +1177,6 @@ export default function DashboardPage() {
 
       </div>
     </HydrationWrapper>
+    </>
   );
 }

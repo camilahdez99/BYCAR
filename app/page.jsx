@@ -445,11 +445,6 @@ export default function LandingPage() {
             Conectamos conductores y viajeros en rutas intermunicipales.<br />
             Más económico, más cómodo y más seguro.
           </p>
-          <div className={`hero-cta${heroReady ? ' ready' : ''}`}>
-            <button className="btn-red" onClick={() => router.push('/register')}>
-              Empezar ahora
-            </button>
-          </div>
         </div>
       </div>
 

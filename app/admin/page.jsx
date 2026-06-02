@@ -200,6 +200,10 @@ export default function AdminPage() {
     </div>
   );
 
+  const getRowId = (row) => {
+    return row.ID_USU || row.ID_PER || row.ID_MUN || row.ID_DEP || row.PLACA_VEH || row.ID_VIA || row.ID_ENU || row.ID_GUA || row.ID_MAR || row.ID_MOD || row.ID_EST_SOL || row.ID_EST_GUA || row.ID_ROL || row[columnsInfo[0]?.COLUMN_NAME];
+  };
+
   const renderTable = () => {
     if (loading) return <div className="p-12 text-center text-white/30 text-sm">Cargando datos...</div>;
     if (!columnsInfo.length) return null;
@@ -222,7 +226,7 @@ export default function AdminPage() {
             ) : (
               filtroRows.map(row => (
                 <tr
-                  key={row.ID_USU || row.ID_PER || row.ID_MUN || row.ID_DEP || row.PLACA_VEH || row.ID_VIA || row.ID_MEN || row.ID_GUA}
+                  key={getRowId(row) || Math.random()}
                   className="border-t border-white/5 hover:bg-white/[0.02] transition-colors"
                 >
                   {columnsInfo.map(col => (
@@ -240,7 +244,7 @@ export default function AdminPage() {
                       <button
                         title="Eliminar"
                         className="p-2 rounded-lg text-red-500/40 hover:text-red-500 hover:bg-red-500/5 transition-colors"
-                        onClick={() => handleDelete(row.ID_USU || row.ID_PER || row.ID_MUN || row.ID_DEP || row.PLACA_VEH || row.ID_VIA || row.ID_MEN || row.ID_GUA)}
+                        onClick={() => handleDelete(getRowId(row))}
                       >
                         <Trash2 size={15} />
                       </button>
@@ -263,7 +267,7 @@ export default function AdminPage() {
           table={activeTable}
           columns={columnsInfo}
           initialData={editRow}
-          onSubmit={(data) => handleUpdate(editRow.ID_USU || editRow.ID_PER || editRow.ID_MUN || editRow.ID_DEP || editRow.PLACA_VEH || editRow.ID_VIA || editRow.ID_MEN || editRow.ID_GUA, data)}
+          onSubmit={(data) => handleUpdate(getRowId(editRow), data)}
           onCancel={cerrarModal}
           loading={guardando}
         />
