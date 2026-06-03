@@ -29,10 +29,32 @@ export async function POST(req) {
       perfilId: 2 // 2 = Usuario Estándar (según script seed_3fn)
     };
 
-    await connection.execute(sql, binds, { autoCommit: true });
+    await connection.execute(sql, binds, { autoCommit: false });
+
+    // Asignar todos los permisos (menús) por defecto al nuevo usuario
+    const menusRes = await connection.execute(`SELECT ID_ENU FROM MENUS`);
+    if (menusRes.rows && menusRes.rows.length > 0) {
+      for (const m of menusRes.rows) {
+        await connection.execute(
+          `INSERT INTO PERMISOS (USUARIO_ID_USU, MENU_ID_ENU) VALUES (:idUsu, :menuId)`,
+          { idUsu, menuId: m.ID_ENU },
+          { autoCommit: false }
+        );
+      }
+    }
+
+    // Confirmar la transacción
+    await connection.commit();
 
     return NextResponse.json({ message: 'Usuario registrado correctamente', id: idUsu }, { status: 201 });
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('Error en rollback:', rollbackError);
+      }
+    }
     // Detect duplicate email (unique‑constraint violation)
     if (error && error.errorNum === 1) {
       // ORA‑00001: unique constraint (email) violated

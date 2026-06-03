@@ -88,17 +88,18 @@ export async function GET(req) {
              md.NOMBRE_MUN as "destino", 
              TO_CHAR(v.TIEMPO_SALIDA_VIA, 'YYYY-MM-DD') as "hora", 
              v.COSTO_PERSONA_VIA as "valor",
-             'N/A' as "comentarios", 
+             v.COMENTARIOS_VIA as "comentarios", 
              v.CUPOS_DISPONIBLES_VIA as "puestos",
              u.NOMBRE_USU || ' ' || u.APELLIDO_USU as "conductor",
-             m.NOMBRE_MAR as "carro"
+             m.NOMBRE_MAR as "carro",
+             vh.PLACA_VEH as "placa"
       FROM VIAJES v
       INNER JOIN USUARIOS u ON v.USUARIOS_ID_USU = u.ID_USU
       INNER JOIN VEHICULOS vh ON v.VEHICULO_PLACA_VEH = vh.PLACA_VEH
       INNER JOIN MARCAS m ON vh.MARCA_ID_MAR = m.ID_MAR
       INNER JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
       INNER JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
-      WHERE v.ESTADO_VIA_ID_EST_VIA = 1 AND v.TIEMPO_SALIDA_VIA >= SYSDATE - 30
+      WHERE v.ESTADO_VIA_ID_EST_VIA = 1 AND v.TIEMPO_SALIDA_VIA >= TRUNC(SYSDATE)
     `;
 
     const binds = {};
@@ -137,7 +138,7 @@ export async function POST(req) {
   let connection;
   try {
     const body = await req.json();
-    const { origen, destino, carro, placa, fecha, puestos, valor, usuarioId } = body;
+    const { origen, destino, carro, placa, fecha, puestos, valor, comentarios, usuarioId } = body;
 
     if (!origen || !destino || !placa || !fecha || !puestos || !valor || !usuarioId) {
       return NextResponse.json({ error: 'Faltan campos obligatorios' }, { status: 400 });
@@ -145,6 +146,7 @@ export async function POST(req) {
 
     const cleanPlaca = placa.replace(/[^a-zA-Z0-9]/g, '').substring(0, 6).toUpperCase();
     const numPuestos = parseInt(puestos, 10);
+    const cleanComentarios = comentarios ? String(comentarios).substring(0, 500) : null;
 
     connection = await getConnection();
 
@@ -173,11 +175,11 @@ export async function POST(req) {
 
     // Estado 1 = Disponible
     const sql = `
-      INSERT INTO VIAJES (ID_VIA, MUNICIPIO_ORIGEN_ID, MUNICIPIOS_DESTINO_ID, TIEMPO_SALIDA_VIA, CUPOS_DISPONIBLES_VIA, COSTO_PERSONA_VIA, USUARIOS_ID_USU, VEHICULO_PLACA_VEH, ESTADO_VIA_ID_EST_VIA)
-      VALUES (:idViaje, :origenId, :destinoId, TO_DATE(:fecha, 'YYYY-MM-DD'), :numPuestos, :valorNum, :usuarioId, :cleanPlaca, 1)
+      INSERT INTO VIAJES (ID_VIA, MUNICIPIO_ORIGEN_ID, MUNICIPIOS_DESTINO_ID, TIEMPO_SALIDA_VIA, CUPOS_DISPONIBLES_VIA, COSTO_PERSONA_VIA, COMENTARIOS_VIA, USUARIOS_ID_USU, VEHICULO_PLACA_VEH, ESTADO_VIA_ID_EST_VIA)
+      VALUES (:idViaje, :origenId, :destinoId, TO_DATE(:fecha, 'YYYY-MM-DD'), :numPuestos, :valorNum, :cleanComentarios, :usuarioId, :cleanPlaca, 1)
     `;
 
-    await connection.execute(sql, { idViaje, origenId, destinoId, fecha, numPuestos, valorNum, usuarioId, cleanPlaca }, { autoCommit: true });
+    await connection.execute(sql, { idViaje, origenId, destinoId, fecha, numPuestos, valorNum, cleanComentarios, usuarioId, cleanPlaca }, { autoCommit: true });
 
     return NextResponse.json({ message: 'Viaje publicado correctamente', id: idViaje }, { status: 201 });
   } catch (error) {

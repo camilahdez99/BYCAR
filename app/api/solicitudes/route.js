@@ -41,30 +41,33 @@ export async function PUT(req) {
     }
 
     connection = await getConnection();
-    
-    let sql;
-    let binds = { solicitudId };
-    
-    if (isNaN(estado)) {
-      // Si el estado es un texto, buscar dinámicamente el ID en la BD
-      sql = `
-        UPDATE SOLICITUDES 
-        SET ESTADO_ID_EST = (
-          SELECT ID_EST_SOL 
-          FROM ESTADOS_SOL 
-          WHERE UPPER(SUBSTR(ESTADO_EST_SOL, 1, 6)) = UPPER(SUBSTR(:estadoStr, 1, 6))
-          AND ROWNUM = 1
-        )
-        WHERE ID_SOL = :solicitudId
-      `;
-      binds.estadoStr = estado;
-    } else {
-      // Si el frontend ya envió el ID numérico
-      sql = `UPDATE SOLICITUDES SET ESTADO_ID_EST = :estadoId WHERE ID_SOL = :solicitudId`;
-      binds.estadoId = Number(estado);
+
+    // Mapa directo de texto → ID de estado (según ESTADOS_SOL)
+    const estadoMap = {
+      'Pendiente': 1,
+      'Aceptado': 2,
+      'Aceptada': 2,
+      'Rechazado': 3,
+      'Rechazada': 3,
+      'Cancelado': 4,
+      'Cancelada': 4,
+    };
+
+    const estadoId = isNaN(estado)
+      ? (estadoMap[estado] ?? null)
+      : Number(estado);
+
+    if (!estadoId) {
+      return NextResponse.json({ error: `Estado desconocido: ${estado}` }, { status: 400 });
     }
 
-    await connection.execute(sql, binds, { autoCommit: true });
+    const sql = `UPDATE SOLICITUDES SET ESTADO_ID_EST = :estadoId WHERE ID_SOL = :solicitudId`;
+    const result = await connection.execute(
+      sql,
+      { estadoId: Number(estadoId), solicitudId: Number(solicitudId) },
+      { autoCommit: true }
+    );
+    console.log(`[PUT /solicitudes] id=${solicitudId} → estadoId=${estadoId}, filas afectadas=${result.rowsAffected}`);
 
     return NextResponse.json({ message: 'Solicitud actualizada' }, { status: 200 });
   } catch (error) {

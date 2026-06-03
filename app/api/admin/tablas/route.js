@@ -32,7 +32,7 @@ const getPrimaryKey = async (connection, tabla) => {
 
 const getColumnsInfo = async (connection, tabla) => {
   const sql = `
-    SELECT column_name, data_type
+    SELECT column_name, data_type, nullable
     FROM user_tab_columns
     WHERE table_name = :tabla
   `;
@@ -169,8 +169,29 @@ export async function POST(req) {
     await connection.execute(
       sql,
       bindData,
-      { autoCommit: true }
+      { autoCommit: t !== 'MENUS' }
     );
+
+    if (t === 'MENUS') {
+      const idKey = Object.keys(bindData).find(k => k.toUpperCase() === 'ID_ENU');
+      const newMenuId = idKey ? bindData[idKey] : null;
+
+      if (newMenuId) {
+        const usersRes = await connection.execute(`SELECT ID_USU FROM USUARIOS`);
+        for (const u of usersRes.rows) {
+          try {
+            await connection.execute(
+              `INSERT INTO PERMISOS (USUARIO_ID_USU, MENU_ID_ENU) VALUES (:usuarioId, :menuId)`,
+              { usuarioId: u.ID_USU, menuId: Number(newMenuId) },
+              { autoCommit: false }
+            );
+          } catch (permError) {
+            console.error('Error insertando permiso por defecto:', permError);
+          }
+        }
+        await connection.commit();
+      }
+    }
 
     return NextResponse.json(
       { ok: true },
@@ -178,6 +199,13 @@ export async function POST(req) {
     );
 
   } catch (e) {
+    if (connection && t === 'MENUS') {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('Error en rollback:', rollbackError);
+      }
+    }
     console.error('POST tabla error:', e);
 
     return NextResponse.json(

@@ -13,10 +13,10 @@ export async function GET(req) {
 
     connection = await getConnection();
 
-    // Obtener chats: 
+    // Obtener chats:
     // - Si el usuario es pasajero, trae la info del conductor
     // - Si el usuario es conductor, trae la info del pasajero
-    // Ambos casos solo para solicitudes Aceptadas y viajes futuros/activos
+    // Solo solicitudes con estado Aceptada (ESTADO_ID_EST = 2)
     const sql = `
       SELECT s.ID_SOL as "chatId",
              CASE 
@@ -32,11 +32,13 @@ export async function GET(req) {
       JOIN MUNICIPIOS mo ON v.MUNICIPIO_ORIGEN_ID = mo.ID_MUN
       JOIN MUNICIPIOS md ON v.MUNICIPIOS_DESTINO_ID = md.ID_MUN
       WHERE s.ESTADO_ID_EST = 2
-        AND v.TIEMPO_SALIDA_VIA >= SYSDATE - 1
         AND (s.USUARIOS_ID_USU = :usuarioId OR v.USUARIOS_ID_USU = :usuarioId)
+      ORDER BY s.ID_SOL DESC
     `;
 
-    const result = await connection.execute(sql, { usuarioId });
+    // Convertir a número para que Oracle compare correctamente con columnas NUMBER
+    const result = await connection.execute(sql, { usuarioId: Number(usuarioId) });
+    console.log('[GET /api/mensajes/chats] usuarioId:', usuarioId, '| chats encontrados:', result.rows?.length ?? 0);
     return NextResponse.json(result.rows || [], { status: 200 });
   } catch (error) {
     console.error('Error al obtener chats:', error);

@@ -60,7 +60,7 @@ export default function DynamicForm({ table, columns, initialData, onSubmit, onC
             value={form[col.COLUMN_NAME] ?? ''}
             onChange={handleChange}
             className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#E52222] transition-colors"
-            required
+            required={col.NULLABLE === 'N'}
           />
         </div>
       ))}

@@ -8,16 +8,27 @@ import { toast } from 'react-hot-toast';
 
 /** Modal component used throughout the admin panel */
 function Modal({ title, children, onClose }) {
+  // Prevent closing when clicking inside the modal content
+  const handleContentClick = (e) => {
+    e.stopPropagation();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-md mx-4 shadow-2xl">
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+    >
+      <div 
+        onClick={handleContentClick}
+        className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto"
+      >
+        <div className="flex items-center justify-between p-6 border-b border-white/10 flex-shrink-0">
           <h2 className="text-lg font-bold text-white">{title}</h2>
           <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
             <X size={20} />
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="p-6 overflow-y-auto">{children}</div>
       </div>
     </div>
   );
@@ -201,7 +212,7 @@ export default function AdminPage() {
   );
 
   const getRowId = (row) => {
-    return row.ID_USU || row.ID_PER || row.ID_MUN || row.ID_DEP || row.PLACA_VEH || row.ID_VIA || row.ID_ENU || row.ID_GUA || row.ID_MAR || row.ID_MOD || row.ID_EST_SOL || row.ID_EST_GUA || row.ID_ROL || row[columnsInfo[0]?.COLUMN_NAME];
+    return row.ID_USU || row.ID_PER || row.ID_MUN || row.ID_DEP || row.PLACA_VEH || row.ID_VIA || row.ID_ENU || row.ID_GUA || row.ID_MAR || row.ID_MOD || row.ID_EST_SOL || row.ID_EST_GUA || row.ID_ROL || row.ID_MEN || row[columnsInfo[0]?.COLUMN_NAME];
   };
 
   const renderTable = () => {
@@ -293,7 +304,7 @@ export default function AdminPage() {
       )}
       <div className="flex min-h-screen bg-[#0a0a0a] text-white">
         {renderSidebar()}
-        <main className="flex-1 p-8">
+        <main className="flex-1 p-8 min-w-0 overflow-x-hidden">
           {/* Render según sección */}
           {activeSection === 'permisos' ? (
             <PermisosManager />

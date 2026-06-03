@@ -115,6 +115,7 @@ export default function DashboardPage() {
 
   const [currentUser, setCurrentUser] = useState(null);
   const [mensajes, setMensajes] = useState([]);
+  const [mensajesLeidos, setMensajesLeidos] = useState(0); // cuántos chats vio el usuario la última vez
   const [userPermisos, setUserPermisos] = useState(null); // null = cargando, [] = sin permisos
 
   // --- CATÁLOGOS DINÁMICOS ---
@@ -130,6 +131,7 @@ export default function DashboardPage() {
   // --- ESTADO PARA GESTIÓN DE RUTAS Y SOLICITUDES ---
   const [rutasPublicadas, setRutasPublicadas] = useState([]);
   const [rutasSolicitadas, setRutasSolicitadas] = useState([]);
+  const [rutasSolicitadasLeidas, setRutasSolicitadasLeidas] = useState({}); // { [routeId]: estado }
   const [solicitudesRecibidas, setSolicitudesRecibidas] = useState([]);
 
   // --- ESTADO PARA LA NUEVA RUTA ---
@@ -251,6 +253,7 @@ export default function DashboardPage() {
   }, []);
 
   // Re-fetch data when opening tabs or periodically
+  // Re-fetch data when opening tabs or periodically
   useEffect(() => {
     if (!currentUser) return;
     const uId = currentUser.ID_USU || currentUser.id_usu || currentUser.id;
@@ -264,24 +267,34 @@ export default function DashboardPage() {
           .catch(err => console.error(err));
       }
       
-      // Refresh mis rutas
-      if (activePage === 'mis-rutas') {
-        fetch(`/api/viajes/mis-rutas?usuarioId=${uId}`)
-          .then(res => res.json())
-          .then(data => {
+      // Refresh mis rutas SIEMPRE en background para detectar cambios de estado y activar el badge
+      fetch(`/api/viajes/mis-rutas?usuarioId=${uId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && typeof data === 'object') {
             setRutasPublicadas((Array.isArray(data.publicadas) ? data.publicadas : []).sort((a, b) => b.id - a.id));
             setRutasSolicitadas((Array.isArray(data.solicitadas) ? data.solicitadas : []).sort((a, b) => b.id - a.id));
-          })
-          .catch(err => console.error(err));
-      }
+          }
+        })
+        .catch(err => console.error(err));
 
-      // Refresh chat list (Mensajes)
-      if (activePage === 'mensajes') {
-        fetch(`/api/mensajes/chats?usuarioId=${uId}`)
-          .then(res => res.json())
-          .then(data => setMensajes(Array.isArray(data) ? data : []))
-          .catch(err => console.error(err));
-      }
+      // Refresh chat list SIEMPRE (en background) para detectar nuevos chats tanto
+      // para el conductor que acepta como para el pasajero cuya solicitud fue aceptada
+      fetch(`/api/mensajes/chats?usuarioId=${uId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setMensajes(prev => {
+              // Si el usuario está en la pestaña mensajes, marcar como leídos automáticamente
+              if (activePage === 'mensajes') {
+                setMensajesLeidos(data.length);
+              }
+              return data;
+            });
+          }
+        })
+        .catch(err => console.error(err));
+
       // Refresh guardian alerts
       if (activePage === 'guardian') {
         if (currentUser?.CORREO_USU || currentUser?.correo_usu) {
@@ -300,6 +313,24 @@ export default function DashboardPage() {
     const interval = setInterval(refreshTabs, 10000);
     return () => clearInterval(interval);
   }, [activePage, currentUser]);
+
+  // Cuando el usuario navega HACIA la pestaña de mis-rutas (o actualiza estando en ella), marcar todos como leídos
+  useEffect(() => {
+    if (activePage === 'mis-rutas' && rutasSolicitadas.length > 0) {
+      const updated = {};
+      rutasSolicitadas.forEach(r => {
+        updated[r.id] = r.estado;
+      });
+      setRutasSolicitadasLeidas(prev => ({ ...prev, ...updated }));
+    }
+  }, [activePage, rutasSolicitadas]);
+
+  // Cuando el usuario navega HACIA la pestaña mensajes, marcar todos como leídos
+  useEffect(() => {
+    if (activePage === 'mensajes') {
+      setMensajesLeidos(mensajes.length);
+    }
+  }, [activePage]);
 
   // Temporizador del Guardián — SÓLO se reinicia cuando guardianActivo cambia
   useEffect(() => {
@@ -593,6 +624,31 @@ export default function DashboardPage() {
   const aceptarSolicitud = (id) => gestionarSolicitud(id, 'Aceptado');
   const rechazarSolicitud = (id) => gestionarSolicitud(id, 'Rechazado');
 
+  const getBadgeCount = (url) => {
+    if (url === '/solicitudes') {
+      return solicitudesRecibidas.length;
+    }
+    if (url === '/mis-rutas') {
+      return activePage !== 'mis-rutas'
+        ? rutasSolicitadas.filter(r => {
+            const esCambio = r.estado?.toUpperCase().startsWith('ACEPTAD') || r.estado?.toUpperCase().startsWith('RECHAZAD');
+            if (!esCambio) return false;
+            // Mostrar badge solo si el estado actual es diferente al que el usuario vio/leyó
+            return rutasSolicitadasLeidas[r.id] !== r.estado;
+          }).length
+        : 0;
+    }
+    if (url === '/mensajes') {
+      // Mostrar la cantidad de chats NUEVOS que aún no ha visto
+      const nuevos = mensajes.length - mensajesLeidos;
+      return activePage !== 'mensajes' && nuevos > 0 ? nuevos : 0;
+    }
+    if (url === '/guardian') {
+      return alertasRecibidas.filter(a => a.estado?.toUpperCase() === 'ALERTA').length;
+    }
+    return 0;
+  };
+
   // Construir navItems dinámicamente desde la BD (MENUS)
   const navItems = menuItems.length > 0 && userPermisos !== null
     ? menuItems
@@ -605,14 +661,14 @@ export default function DashboardPage() {
           id: m.url ? m.url.replace('/', '') : m.id,
           label: m.label,
           icon: MENU_ICONS[m.url] || 'M3 12h18M3 6h18M3 18h18',
-          badge: m.url === '/solicitudes' ? solicitudesRecibidas.length : 0,
+          badge: getBadgeCount(m.url),
         }))
     : [
-        { id: 'inicio',      label: 'Inicio',      icon: MENU_ICONS['/inicio'] },
-        { id: 'mis-rutas',   label: 'Mis Rutas',   icon: MENU_ICONS['/mis-rutas'] },
-        { id: 'solicitudes', label: 'Solicitudes',  icon: MENU_ICONS['/solicitudes'], badge: solicitudesRecibidas.length },
-        { id: 'mensajes',    label: 'Mensajes',     icon: MENU_ICONS['/mensajes'] },
-        { id: 'guardian',    label: 'Guardian',     icon: MENU_ICONS['/guardian'] },
+        { id: 'inicio',      label: 'Inicio',      icon: MENU_ICONS['/inicio'],      badge: 0 },
+        { id: 'mis-rutas',   label: 'Mis Rutas',   icon: MENU_ICONS['/mis-rutas'],   badge: getBadgeCount('/mis-rutas') },
+        { id: 'solicitudes', label: 'Solicitudes',  icon: MENU_ICONS['/solicitudes'], badge: getBadgeCount('/solicitudes') },
+        { id: 'mensajes',    label: 'Mensajes',     icon: MENU_ICONS['/mensajes'],    badge: getBadgeCount('/mensajes') },
+        { id: 'guardian',    label: 'Guardian',     icon: MENU_ICONS['/guardian'],    badge: getBadgeCount('/guardian') },
       ];
 
   return (
@@ -1111,6 +1167,27 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+          </section>
+        )}
+
+        {/* VISTA DINÁMICA DE FALLBACK PARA NUEVOS MENÚS CREADOS POR EL ADMINISTRADOR */}
+        {!['inicio', 'buscar', 'mis-rutas', 'solicitudes', 'mensajes', 'guardian'].includes(activePage) && (
+          <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: '2rem' }}>
+            <div style={{ width: '80px', height: '80px', background: 'rgba(255,255,255,0.05)', borderRadius: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
+              <svg width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                <path d="M12 3v13.5M3 18.75h18" />
+              </svg>
+            </div>
+            <h1 style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: '2.2rem', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              {navItems.find(item => item.id === activePage)?.label || activePage.replace(/-/g, ' ')}
+            </h1>
+            <p style={{ color: 'var(--muted)', fontSize: '0.95rem', maxWidth: '450px', lineHeight: '1.6', marginBottom: '2rem' }}>
+              Este módulo se ha detectado y cargado de manera dinámica. Su acceso ya está protegido y configurado bajo el esquema de permisos de Bycar.
+            </p>
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '16px', padding: '12px 24px', fontSize: '0.8rem', color: 'var(--muted)', fontFamily: 'monospace' }}>
+              Identificador del Módulo: <span style={{ color: 'var(--red)', fontWeight: 'bold' }}>{activePage}</span>
+            </div>
           </section>
         )}
 
