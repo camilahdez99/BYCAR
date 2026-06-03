@@ -1223,5 +1223,10 @@ INSERT INTO MENUS (ID_ENU, CAMPO_ENU, URL_ENU, MENU_ID_ENU)
 VALUES (4, 'Mensajes', '/mensajes', NULL);
 INSERT INTO MENUS (ID_ENU, CAMPO_ENU, URL_ENU, MENU_ID_ENU)
 VALUES (5, 'Guardian', '/guardian', NULL);
+INSERT INTO MENUS (ID_ENU, CAMPO_ENU, URL_ENU, MENU_ID_ENU)
+VALUES (6, 'Crear nueva ruta', '/inicio/crear', 1);
+INSERT INTO MENUS (ID_ENU, CAMPO_ENU, URL_ENU, MENU_ID_ENU)
+VALUES (7, 'Buscar ruta', '/inicio/buscar', 1);
+
 
 COMMIT;

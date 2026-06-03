@@ -6,6 +6,10 @@ export default function HydrationWrapper({ children }) {
   useEffect(() => {
     setMounted(true);
   }, []);
-  if (!mounted) return null;
-  return <>{children}</>;
+
+  return (
+    <div suppressHydrationWarning style={{ display: 'contents' }}>
+      {mounted ? children : null}
+    </div>
+  );
 }

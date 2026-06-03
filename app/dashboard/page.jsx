@@ -115,6 +115,7 @@ export default function DashboardPage() {
 
   const [currentUser, setCurrentUser] = useState(null);
   const [mensajes, setMensajes] = useState([]);
+  const [userPermisos, setUserPermisos] = useState(null); // null = cargando, [] = sin permisos
 
   // --- CATÁLOGOS DINÁMICOS ---
   const [menuItems, setMenuItems] = useState([]);
@@ -186,13 +187,16 @@ export default function DashboardPage() {
 
       try {
         const uIdChat = storedUser ? (storedUser.ID_USU || storedUser.id_usu || storedUser.id) : null;
+        const pId = storedUser ? (storedUser.PERFIL_ID_PER || storedUser.perfil_id_per) : null;
+        
         if (!uIdChat) return;
 
-        const [resRutas, resSol, resMensajes, resGuardian] = await Promise.all([
+        const [resRutas, resSol, resMensajes, resGuardian, resPermisos] = await Promise.all([
           fetch(`/api/viajes/mis-rutas?usuarioId=${uIdChat}`),
           fetch(`/api/solicitudes/recibidas?usuarioId=${uIdChat}`),
           fetch(`/api/mensajes/chats?usuarioId=${uIdChat}`),
-          fetch(`/api/guardian?usuarioId=${uIdChat}`)
+          fetch(`/api/guardian?usuarioId=${uIdChat}`),
+          fetch(`/api/admin/permisos?usuarioId=${uIdChat}`)
         ]);
         if (resRutas.ok) {
           const dataRutas = await resRutas.json();
@@ -232,6 +236,12 @@ export default function DashboardPage() {
               setGuardianAlertaEnviada(true);
             }
           }
+        }
+        if (resPermisos && resPermisos.ok) {
+          const dataPermisos = await resPermisos.json();
+          setUserPermisos(dataPermisos.map(p => p.menuUrl));
+        } else if (resPermisos) {
+          setUserPermisos([]);
         }
       } catch (error) {
         console.error('Error al cargar datos del dashboard', error);
@@ -584,13 +594,19 @@ export default function DashboardPage() {
   const rechazarSolicitud = (id) => gestionarSolicitud(id, 'Rechazado');
 
   // Construir navItems dinámicamente desde la BD (MENUS)
-  const navItems = menuItems.length > 0
-    ? menuItems.map(m => ({
-        id: m.url ? m.url.replace('/', '') : m.id,
-        label: m.label,
-        icon: MENU_ICONS[m.url] || 'M3 12h18M3 6h18M3 18h18',
-        badge: m.url === '/solicitudes' ? solicitudesRecibidas.length : 0,
-      }))
+  const navItems = menuItems.length > 0 && userPermisos !== null
+    ? menuItems
+        .filter(m => {
+          if (!m.parentId && m.id !== 1) return userPermisos.includes(m.url);
+          if (m.id === 1) return userPermisos.includes('/inicio/crear') || userPermisos.includes('/inicio/buscar') || userPermisos.includes('/inicio');
+          return false;
+        })
+        .map(m => ({
+          id: m.url ? m.url.replace('/', '') : m.id,
+          label: m.label,
+          icon: MENU_ICONS[m.url] || 'M3 12h18M3 6h18M3 18h18',
+          badge: m.url === '/solicitudes' ? solicitudesRecibidas.length : 0,
+        }))
     : [
         { id: 'inicio',      label: 'Inicio',      icon: MENU_ICONS['/inicio'] },
         { id: 'mis-rutas',   label: 'Mis Rutas',   icon: MENU_ICONS['/mis-rutas'] },
@@ -600,7 +616,7 @@ export default function DashboardPage() {
       ];
 
   return (
-    <>
+    <HydrationWrapper>
       <style jsx global>{`
         :root {
           --red: #E52222;
@@ -651,8 +667,7 @@ export default function DashboardPage() {
           .route-card div:last-child { width: 100%; display: flex; justify-content: flex-end; }
         }
       `}</style>
-      <HydrationWrapper>
-        <div className="dashboard-container">
+      <div className="dashboard-container">
       
       <div className="mobile-nav">
         {navItems.map((item) => (
@@ -709,37 +724,46 @@ export default function DashboardPage() {
             </div>
 
             
-            <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'stretch' }}>
+            <div className="grid-2" style={{ 
+              display: 'grid', 
+              gridTemplateColumns: (!userPermisos || (userPermisos.includes('/inicio/crear') && userPermisos.includes('/inicio/buscar'))) ? '1fr 1fr' : '1fr', 
+              gap: '2rem', 
+              alignItems: 'stretch' 
+            }}>
               {/* CREAR RUTA */}
-              <div style={{ background: 'var(--surface)', padding: '2.5rem', borderRadius: '32px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '1rem' }}>
-                <div style={{ width: '64px', height: '64px', background: 'rgba(229,34,34,0.1)', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)', marginBottom: '0.5rem' }}>
-                  <svg width="32" height="32" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-                </div>
-                <h3 style={{ fontFamily: 'Syne', fontSize: '1.4rem', fontWeight: 800 }}>¿Vas a conducir?</h3>
-                <p style={{ color: 'var(--muted)', fontSize: '0.95rem', lineHeight: '1.6', maxWidth: '280px' }}>
-                  Publica tu viaje, ahorra en combustible y ayuda a otros a llegar a su destino.
-                </p>
-                <button className="btn-red" style={{ width: '100%', maxWidth: '240px', justifyContent: 'center', padding: '1rem', marginTop: '0.5rem' }} onClick={() => setIsModalOpen(true)}>
-                  Crear nueva ruta
-                </button>
-              </div>
-
-              {/* BUSCAR RUTA */}
-              <div style={{ background: 'var(--surface)', padding: '2.5rem', borderRadius: '32px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.2rem' }}>
-                  <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)' }}>
-                    <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              {(!userPermisos || userPermisos.includes('/inicio/crear') || userPermisos.includes('/inicio')) && (
+                <div style={{ background: 'var(--surface)', padding: '2.5rem', borderRadius: '32px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '1rem' }}>
+                  <div style={{ width: '64px', height: '64px', background: 'rgba(229,34,34,0.1)', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)', marginBottom: '0.5rem' }}>
+                    <svg width="32" height="32" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
                   </div>
-                  <h3 style={{ fontFamily: 'Syne', fontSize: '1.4rem', fontWeight: 800 }}>¿Buscas un viaje?</h3>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <Autocomplete placeholder="Origen" value={searchParams.origen} opciones={municipiosDB} onChange={(val) => setSearchParams({...searchParams, origen: val.toUpperCase()})} />
-                  <Autocomplete placeholder="Destino" value={searchParams.destino} opciones={municipiosDB} onChange={(val) => setSearchParams({...searchParams, destino: val.toUpperCase()})} />
-                  <button className="btn-red" style={{ width: '100%', justifyContent: 'center', padding: '1rem', marginTop: '0.5rem' }} onClick={() => { buscarViajes(); setActivePage('buscar'); }}>
-                    Buscar rutas disponibles
+                  <h3 style={{ fontFamily: 'Syne', fontSize: '1.4rem', fontWeight: 800 }}>¿Vas a conducir?</h3>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.95rem', lineHeight: '1.6', maxWidth: '280px' }}>
+                    Publica tu viaje, ahorra en combustible y ayuda a otros a llegar a su destino.
+                  </p>
+                  <button className="btn-red" style={{ width: '100%', maxWidth: '240px', justifyContent: 'center', padding: '1rem', marginTop: '0.5rem' }} onClick={() => setIsModalOpen(true)}>
+                    Crear nueva ruta
                   </button>
                 </div>
-              </div>
+              )}
+
+              {/* BUSCAR RUTA */}
+              {(!userPermisos || userPermisos.includes('/inicio/buscar') || userPermisos.includes('/inicio')) && (
+                <div style={{ background: 'var(--surface)', padding: '2.5rem', borderRadius: '32px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.2rem' }}>
+                    <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--red)' }}>
+                      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    </div>
+                    <h3 style={{ fontFamily: 'Syne', fontSize: '1.4rem', fontWeight: 800 }}>¿Buscas un viaje?</h3>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <Autocomplete placeholder="Origen" value={searchParams.origen} opciones={municipiosDB} onChange={(val) => setSearchParams({...searchParams, origen: val.toUpperCase()})} />
+                    <Autocomplete placeholder="Destino" value={searchParams.destino} opciones={municipiosDB} onChange={(val) => setSearchParams({...searchParams, destino: val.toUpperCase()})} />
+                    <button className="btn-red" style={{ width: '100%', justifyContent: 'center', padding: '1rem', marginTop: '0.5rem' }} onClick={() => { buscarViajes(); setActivePage('buscar'); }}>
+                      Buscar rutas disponibles
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -1174,9 +1198,7 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
-
       </div>
     </HydrationWrapper>
-    </>
   );
 }

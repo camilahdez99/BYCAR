@@ -181,9 +181,9 @@ export default function AdminPage() {
           {/* Botón de gestión de permisos */}
           <button
             onClick={() => { setActiveSection('permisos'); setSearch(''); }}
-            className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-sm ${activeSection === 'permisos' ? 'bg-[#E52222] text-white' : 'hover:bg-white/5 text-white/50'}`}
+            className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-sm font-semibold tracking-widest ${activeSection === 'permisos' ? 'bg-[#E52222] text-white' : 'hover:bg-white/5 text-white/50'}`}
           >
-            Permisos
+            PERMISOS
           </button>
         </nav>
       </aside>
