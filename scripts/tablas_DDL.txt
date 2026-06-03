@@ -80,25 +80,6 @@ CREATE TABLE PERFILES (
 ) TABLESPACE TS_BYCAR;
 
 -- ==========================================================
--- TABLA: PERMISOS
--- ==========================================================
-
-CREATE TABLE PERMISOS (
-    USUARIO_ID_USU NUMBER,
-    MENU_ID_ENU NUMBER,
-    CONSTRAINT PK_PERMISOS
-        PRIMARY KEY(USUARIO_ID_USU, MENU_ID_ENU),
-    CONSTRAINT FK_PERMISOS_USUARIO
-        FOREIGN KEY(USUARIO_ID_USU)
-        REFERENCES USUARIOS (ID_USU)
-        ON DELETE CASCADE,
-    CONSTRAINT FK_PERMISOS_MENU
-        FOREIGN KEY(MENU_ID_ENU)
-        REFERENCES MENUS (ID_ENU)
-        ON DELETE CASCADE
-) TABLESPACE TS_BYCAR;
-
--- ==========================================================
 -- TABLA: USUARIOS
 -- ==========================================================
 
@@ -115,6 +96,25 @@ CREATE TABLE USUARIOS (
     CONSTRAINT FK_USUARIOS_PERFIL
         FOREIGN KEY(PERFIL_ID_PER)
         REFERENCES PERFILES (ID_PER)
+        ON DELETE CASCADE
+) TABLESPACE TS_BYCAR;
+
+-- ==========================================================
+-- TABLA: PERMISOS
+-- ==========================================================
+
+CREATE TABLE PERMISOS (
+    USUARIO_ID_USU NUMBER,
+    MENU_ID_ENU NUMBER,
+    CONSTRAINT PK_PERMISOS
+        PRIMARY KEY(USUARIO_ID_USU, MENU_ID_ENU),
+    CONSTRAINT FK_PERMISOS_USUARIO
+        FOREIGN KEY(USUARIO_ID_USU)
+        REFERENCES USUARIOS (ID_USU)
+        ON DELETE CASCADE,
+    CONSTRAINT FK_PERMISOS_MENU
+        FOREIGN KEY(MENU_ID_ENU)
+        REFERENCES MENUS (ID_ENU)
         ON DELETE CASCADE
 ) TABLESPACE TS_BYCAR;
 
