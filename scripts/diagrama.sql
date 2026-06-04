@@ -4,7 +4,7 @@ prompt ====================================
 prompt |   Esquema de la Base de Datos    |
 prompt ====================================
 
-connect system/12345
+connect system/contrasena
 
 show con_name
 
@@ -14,7 +14,7 @@ ALTER DATABASE OPEN;
 DROP TABLESPACE TS_BYCAR INCLUDING CONTENTS and DATAFILES;
 
 CREATE TABLESPACE TS_BYCAR LOGGING
-DATAFILE 'D:\BYCAR_BD\base_de_datos_Bycar.dbf' size 40M
+DATAFILE 'D:\direccion_de_guardado\base_de_datos_Bycar.dbf' size 40M
 extent management local segment space management auto;
 
 alter session set "_ORACLE_SCRIPT"=true;

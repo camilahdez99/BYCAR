@@ -55,10 +55,16 @@ export default function AdminPage() {
       try {
         const res = await fetch('/api/admin/tablas?list=1');
         const data = await res.json();
+        if (!res.ok || !Array.isArray(data)) {
+          toast.error('Error al obtener lista de tablas: ' + (data?.error ?? res.status));
+          setTablesList([]);
+          return;
+        }
         setTablesList(data);
         if (data.length) setActiveTable(data[0]);
       } catch (e) {
         toast.error('Error al obtener lista de tablas');
+        setTablesList([]);
       }
     };
     fetchTables();
